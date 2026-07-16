@@ -17,7 +17,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly):
+def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None):
     payload = {
         "name": name,
         "age": age,
@@ -28,12 +28,43 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         "budget_weekly": budget_weekly,
     }
 
+    if dietary_type:
+        payload["dietary_type"] = dietary_type
+    if dietary_preferences:
+        payload["dietary_preferences"] = dietary_preferences
+    if allergies:
+        payload["allergies"] = allergies
+    if preferences:
+        payload["preferences"] = preferences
+
     try:
         result = supabase.table("users").insert(payload).select("*").execute()
-        return result.data[0] if result.data else {}
+        user_record = result.data[0] if result.data else {}
+        if dietary_type and "dietary_type" not in user_record:
+            user_record["dietary_type"] = dietary_type
+        if dietary_preferences and "dietary_preferences" not in user_record:
+            user_record["dietary_preferences"] = dietary_preferences
+        if allergies and "allergies" not in user_record:
+            user_record["allergies"] = allergies
+        if preferences and "preferences" not in user_record:
+            user_record["preferences"] = preferences
+        return user_record
     except Exception as exc:
         print(f"⚠️ Error creating user: {exc}")
-        return {}
+        fallback_payload = {k: v for k, v in payload.items() if k not in {"dietary_type", "dietary_preferences", "allergies", "preferences"}}
+        try:
+            result = supabase.table("users").insert(fallback_payload).select("*").execute()
+            user_record = result.data[0] if result.data else {}
+            if dietary_type and "dietary_type" not in user_record:
+                user_record["dietary_type"] = dietary_type
+            if allergies and "allergies" not in user_record:
+                user_record["allergies"] = allergies
+            if preferences and "preferences" not in user_record:
+                user_record["preferences"] = preferences
+            return user_record
+        except Exception as exc2:
+            print(f"⚠️ Error creating user fallback: {exc2}")
+            return {}
 
 
 def get_user(user_id):
@@ -45,7 +76,7 @@ def get_user(user_id):
         return {}
 
 
-def add_family_member(user_id, name, age, dietary_type, allergies, preferences):
+def add_family_member(user_id, name, age, dietary_type, allergies, preferences, telegram=""):
     payload = {
         "user_id": user_id,
         "name": name,
@@ -55,12 +86,21 @@ def add_family_member(user_id, name, age, dietary_type, allergies, preferences):
         "preferences": preferences or [],
     }
 
+    if telegram:
+        payload["telegram"] = telegram
+
     try:
         result = supabase.table("family_members").insert(payload).select("*").execute()
         return result.data[0] if result.data else {}
     except Exception as exc:
         print(f"⚠️ Error adding family member: {exc}")
-        return {}
+        fallback_payload = {k: v for k, v in payload.items() if k != "telegram"}
+        try:
+            result = supabase.table("family_members").insert(fallback_payload).select("*").execute()
+            return result.data[0] if result.data else {}
+        except Exception as exc2:
+            print(f"⚠️ Error adding family member fallback: {exc2}")
+            return {}
 
 
 def get_family_members(user_id):

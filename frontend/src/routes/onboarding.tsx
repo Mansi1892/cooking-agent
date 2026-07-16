@@ -28,6 +28,9 @@ function Onboarding() {
     weekly_budget: 80,
     telegram: "",
     goal: "maintenance",
+    dietary_preference: "Vegetarian",
+    allergies: [],
+    preferences: [],
     family: [],
   });
 
@@ -207,7 +210,24 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
         </Field>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-8 grid sm:grid-cols-2 gap-4">
+        <Field label="Dietary preference">
+          <select className={input()} value={form.dietary_preference ?? "Vegetarian"} onChange={(e) => update({ dietary_preference: e.target.value })}>
+            <option value="Vegetarian">Vegetarian</option>
+            <option value="Vegan">Vegan</option>
+            <option value="Non-vegetarian">Non-vegetarian</option>
+            <option value="Pescatarian">Pescatarian</option>
+          </select>
+        </Field>
+        <Field label="Allergies (comma separated)">
+          <input className={input()} value={(form.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="peanuts, shellfish" />
+        </Field>
+        <Field label="Preferences">
+          <input className={input()} value={(form.preferences ?? []).join(", ")} onChange={(e) => update({ preferences: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="spicy, mediterranean" />
+        </Field>
+      </div>
+
+      <div className="mt-4">
         <div className="text-xs font-medium text-text-secondary mb-3">Your goal</div>
         <div className="grid sm:grid-cols-3 gap-3">
           {goals.map((g) => {
@@ -241,7 +261,7 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
 function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partial<OnboardPayload>) => void }) {
   const family = form.family ?? [];
 
-  const add = () => update({ family: [...family, { name: "", diet: "Omnivore", allergies: [], preferences: [] }] });
+  const add = () => update({ family: [...family, { name: "", diet: "Omnivore", allergies: [], preferences: [], telegram: "" }] });
   const remove = (i: number) => update({ family: family.filter((_, idx) => idx !== i) });
   const patch = (i: number, p: Partial<FamilyMember>) =>
     update({ family: family.map((m, idx) => (idx === i ? { ...m, ...p } : m)) });
@@ -279,6 +299,9 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                 <Field label="Preferences">
                   <input className={input()} value={(m.preferences ?? []).join(", ")} onChange={(e) => patch(i, { preferences: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="spicy, mediterranean" />
                 </Field>
+                <Field label="Telegram (optional)">
+                  <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="@username" />
+                </Field>
               </div>
               <button onClick={() => remove(i)} className="size-8 rounded-md hover:bg-muted text-text-light hover:text-destructive grid place-items-center transition">
                 <X className="size-4" />
@@ -312,6 +335,9 @@ function StepReview({ form }: { form: OnboardPayload }) {
             <Row k="Weight" v={`${form.weight} kg`} />
             <Row k="Height" v={`${form.height} cm`} />
             <Row k="Goal" v={form.goal.replace("_", " ")} />
+            <Row k="Dietary preference" v={form.dietary_preference || "Not set"} />
+            <Row k="Allergies" v={(form.allergies ?? []).join(", ") || "None"} />
+            <Row k="Preferences" v={(form.preferences ?? []).join(", ") || "None"} />
             <Row k="Weekly budget" v={`$${form.weekly_budget}`} />
             {form.telegram && <Row k="Telegram" v={form.telegram} />}
           </dl>

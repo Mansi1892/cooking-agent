@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -8,15 +9,14 @@ from database import (
     create_user,
     get_user,
     add_family_member,
-    save_meal_plan,
     get_latest_plan,
-    save_grocery_list,
     save_feedback,
     get_user_history,
 )
 from agent import run_onboarding, generate_meal_plan
+from onboarding_utils import normalize_family_member
 
-app = FastAPI(title="Cooking Agent API")
+app = FastAPI(title="Smart Meal AI API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,93 +27,233 @@ app.add_middleware(
 )
 
 
+# --- Pydantic Models ---
+
 class UserProfile(BaseModel):
-    name: str
-    email: Optional[str]
-    timezone: Optional[str]
+    name: Optional[str] = None
+    age: Optional[int] = None
+    weight: Optional[float] = None
+    height: Optional[float] = None
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
+    goal: Optional[str] = "maintenance"
+    weekly_budget: Optional[float] = 0
+    budget_weekly: Optional[float] = 0
+    telegram: Optional[str] = None
+    telegram_id: Optional[str] = None
+    dietary_preference: Optional[str] = None
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    preferences: Optional[List[str]] = Field(default_factory=list)
 
 
 class FamilyMember(BaseModel):
-    name: str
-    age: Optional[int]
+    name: Optional[str] = None
+    age: Optional[int] = None
+    diet: Optional[str] = None
+    dietary_type: Optional[str] = None
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    preferences: Optional[List[str]] = Field(default_factory=list)
+    telegram: Optional[str] = None
 
 
 class OnboardingRequest(BaseModel):
-    user: UserProfile
+    user: Optional[UserProfile] = None
     family: Optional[List[FamilyMember]] = Field(default_factory=list)
+    family_members: Optional[List[FamilyMember]] = Field(default_factory=list)
+    name: Optional[str] = None
+    age: Optional[int] = None
+    weight: Optional[float] = None
+    height: Optional[float] = None
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
+    goal: Optional[str] = "maintenance"
+    weekly_budget: Optional[float] = 0
+    budget_weekly: Optional[float] = 0
+    telegram: Optional[str] = None
+    telegram_id: Optional[str] = None
+    dietary_preference: Optional[str] = None
+    dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    preferences: Optional[List[str]] = Field(default_factory=list)
 
 
 class FeedbackRequest(BaseModel):
     user_id: str
     plan_id: str
-    rating: Optional[int]
-    notes: Optional[str]
+    rating: Optional[int] = None
+    notes: Optional[str] = None
 
 
-@app.on_event("startup")
-async def startup_event():
-    # Basic sanity check: try to import DB functions and agent
-    try:
-        _ = get_user
-    except Exception:
-        raise
-
+# --- Health Check ---
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/health")
+async def api_health():
+    return {"status": "ok"}
+
+
+# --- Onboarding ---
+
 @app.post("/onboard")
 async def onboard(payload: OnboardingRequest):
-    # Create user and family members, then run onboarding agent
-    user_data = payload.user.dict()
-    user = create_user(user_data)
-    for member in payload.family:
-        add_family_member(user_id=user["id"], member=member.dict())
-    # Run onboarding agent (async-friendly wrapper inside agent module)
-    plan = run_onboarding(user["id"])  # returns initial plan dict or id
-    return {"user": user, "plan": plan}
+    if payload.user is not None:
+        user_data = payload.user.dict(exclude_unset=True)
+        family_payload = [
+            member.dict(exclude_unset=True)
+            for member in (payload.family or [])
+        ]
+    else:
+        user_data = payload.dict(
+            exclude={"user", "family", "family_members"},
+            exclude_unset=True
+        )
+        family_payload = [
+            member.dict(exclude_unset=True)
+            for member in (payload.family or payload.family_members or [])
+        ]
 
+    user_name = user_data.get("name") or "Unknown"
+    age = user_data.get("age") or 0
+    weight_kg = user_data.get("weight_kg") or user_data.get("weight") or 0
+    height_cm = user_data.get("height_cm") or user_data.get("height") or 0
+    goal = user_data.get("goal") or "maintenance"
+    budget_weekly = user_data.get("budget_weekly") or user_data.get("weekly_budget") or 0
+    telegram_id = user_data.get("telegram_id") or user_data.get("telegram") or ""
+    dietary_preference = user_data.get("dietary_preference") or None
+    dietary_preferences = (
+        [dietary_preference]
+        if dietary_preference and isinstance(dietary_preference, str)
+        else []
+    )
+    allergies = user_data.get("allergies") or []
+    preferences = user_data.get("preferences") or []
+
+    user = create_user(
+        name=user_name,
+        age=age,
+        weight_kg=weight_kg,
+        height_cm=height_cm,
+        goal=goal,
+        telegram_id=telegram_id,
+        budget_weekly=budget_weekly,
+    )
+
+    if not user or "id" not in user:
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+    normalized_family = [normalize_family_member(m) for m in family_payload]
+    family_count = 0
+    for member in normalized_family:
+        result = add_family_member(
+            user_id=user["id"],
+            name=member.get("name", "Family Member"),
+            age=member.get("age", 0),
+            dietary_type=member.get("dietary_type", "vegetarian"),
+            allergies=member.get("allergies", []),
+            preferences=member.get("preferences", []),
+        )
+        if result and "id" in result:
+            family_count += 1
+
+    user_record = {
+        "name": user_name,
+        "age": age,
+        "weight_kg": weight_kg,
+        "height_cm": height_cm,
+        "goal": goal,
+        "telegram_id": telegram_id,
+        "budget_weekly": budget_weekly,
+    }
+
+    user_id, confirmation = run_onboarding(user_record, normalized_family)
+
+    return {
+        "user_id": user["id"],
+        "message": confirmation,
+        "family_members_added": family_count,
+    }
+
+
+@app.post("/api/onboard")
+async def api_onboard(payload: OnboardingRequest):
+    return await onboard(payload)
+
+
+# --- Meal Plan ---
 
 @app.post("/plan/generate/{user_id}")
 async def plan_generate(user_id: str):
     user = get_user(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    plan = generate_meal_plan(user_id)
+
+    plan = generate_meal_plan(int(user_id))
     if not plan:
         raise HTTPException(status_code=500, detail="Plan generation failed")
-    saved = save_meal_plan(user_id=user_id, plan=plan)
-    return {"plan": plan, "saved": saved}
+
+    return {"plan": plan}
+
+
+@app.post("/api/plan/generate/{user_id}")
+async def api_plan_generate(user_id: str):
+    return await plan_generate(user_id)
 
 
 @app.get("/plan/{plan_id}")
 async def get_plan(plan_id: str):
-    plan = get_latest_plan(plan_id)
+    plan = get_latest_plan(int(plan_id)) if plan_id.isdigit() else None
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     return {"plan": plan}
 
 
+@app.get("/api/plan/{plan_id}")
+async def api_get_plan(plan_id: str):
+    return await get_plan(plan_id)
+
+
+# --- Grocery ---
+
 @app.get("/grocery/{plan_id}")
 async def get_grocery(plan_id: str):
-    plan = get_latest_plan(plan_id)
+    plan = get_latest_plan(int(plan_id)) if plan_id.isdigit() else None
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     grocery = plan.get("grocery_list") or []
-    # Optionally persist grocery list
-    save_grocery_list(plan_id=plan_id, grocery_list=grocery)
     return {"grocery": grocery}
 
 
+@app.get("/api/grocery/{plan_id}")
+async def api_get_grocery(plan_id: str):
+    return await get_grocery(plan_id)
+
+
+# --- Feedback ---
+
 @app.post("/feedback")
 async def feedback(payload: FeedbackRequest):
-    saved = save_feedback(payload.user_id, payload.plan_id, payload.dict())
+    saved = save_feedback(
+        payload.plan_id,
+        payload.user_id,
+        payload.rating,
+        payload.notes,
+        False
+    )
     return {"saved": bool(saved)}
 
+
+@app.post("/api/feedback")
+async def api_feedback(payload: FeedbackRequest):
+    return await feedback(payload)
+
+
+# --- History ---
 
 @app.get("/history/{user_id}")
 async def history(user_id: str):
@@ -121,227 +261,10 @@ async def history(user_id: str):
     return {"history": hist}
 
 
+@app.get("/api/history/{user_id}")
+async def api_history(user_id: str):
+    return await history(user_id)
+
+
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-
-from agent import run_onboarding, generate_meal_plan, handle_feedback
-from database import (
-    get_user,
-    get_meal_plan,
-    get_grocery_list
-)
-
-app = FastAPI(
-    title="Cooking Agent API",
-    description="AI-powered 7-day Indian meal planner backend",
-    version="1.0.0"
-)
-
-
-# -------------------------
-# Request Models
-# -------------------------
-
-class FamilyMember(BaseModel):
-    name: str
-    age: int
-    gender: str
-    height_cm: float
-    weight_kg: float
-    activity_level: str
-    goal: str
-    dietary_restrictions: Optional[List[str]] = []
-
-
-class OnboardingRequest(BaseModel):
-    name: str
-    age: int
-    gender: str
-    height_cm: float
-    weight_kg: float
-    activity_level: str
-    goal: str
-    dietary_restrictions: Optional[List[str]] = []
-    family_members: Optional[List[FamilyMember]] = []
-
-
-class MealPlanRequest(BaseModel):
-    user_id: str
-
-
-class FeedbackRequest(BaseModel):
-    plan_id: str
-    feedback: str
-
-
-# -------------------------
-# Health Check
-# -------------------------
-
-@app.get("/")
-def root():
-    return {
-        "message": "Cooking Agent Backend is running",
-        "status": "healthy"
-    }
-
-
-@app.get("/health")
-def health_check():
-    return {
-        "status": "ok"
-    }
-
-
-# -------------------------
-# Onboarding API
-# -------------------------
-
-@app.post("/onboarding")
-def onboarding(request: OnboardingRequest):
-    try:
-        user_data = {
-            "name": request.name,
-            "age": request.age,
-            "gender": request.gender,
-            "height_cm": request.height_cm,
-            "weight_kg": request.weight_kg,
-            "activity_level": request.activity_level,
-            "goal": request.goal,
-            "dietary_restrictions": request.dietary_restrictions
-        }
-
-        family_members = [
-            member.model_dump()
-            for member in request.family_members
-        ]
-
-        result = run_onboarding(user_data, family_members)
-
-        return {
-            "message": "Onboarding completed successfully",
-            "data": result
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Onboarding failed: {str(e)}"
-        )
-
-
-# -------------------------
-# Generate Meal Plan API
-# -------------------------
-
-@app.post("/meal-plan/generate")
-def create_meal_plan(request: MealPlanRequest):
-    try:
-        user = get_user(request.user_id)
-
-        if not user:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found"
-            )
-
-        result = generate_meal_plan(request.user_id)
-
-        return {
-            "message": "Meal plan generated successfully",
-            "data": result
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Meal plan generation failed: {str(e)}"
-        )
-
-
-# -------------------------
-# Get Meal Plan API
-# -------------------------
-
-@app.get("/meal-plan/{plan_id}")
-def fetch_meal_plan(plan_id: str):
-    try:
-        plan = get_meal_plan(plan_id)
-
-        if not plan:
-            raise HTTPException(
-                status_code=404,
-                detail="Meal plan not found"
-            )
-
-        return {
-            "data": plan
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch meal plan: {str(e)}"
-        )
-
-
-# -------------------------
-# Feedback API
-# -------------------------
-
-@app.post("/meal-plan/feedback")
-def submit_feedback(request: FeedbackRequest):
-    try:
-        result = handle_feedback(
-            plan_id=request.plan_id,
-            feedback=request.feedback
-        )
-
-        return {
-            "message": "Feedback handled successfully",
-            "data": result
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Feedback handling failed: {str(e)}"
-        )
-
-
-# -------------------------
-# Grocery List API
-# -------------------------
-
-@app.get("/grocery-list/{plan_id}")
-def fetch_grocery_list(plan_id: str):
-    try:
-        grocery_list = get_grocery_list(plan_id)
-
-        if not grocery_list:
-            raise HTTPException(
-                status_code=404,
-                detail="Grocery list not found"
-            )
-
-        return {
-            "data": grocery_list
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch grocery list: {str(e)}"
-        )

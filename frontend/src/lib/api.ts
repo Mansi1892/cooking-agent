@@ -1,7 +1,7 @@
 // Smart Meal AI API client
-// Backend at http://localhost:8000
+// Frontend and backend are served through the same Vite dev server via /api proxy.
 
-const BASE_URL = (typeof window !== "undefined" && (window as any).__MPA_API__) || "http://localhost:8000";
+const BASE_URL = (typeof window !== "undefined" && (window as any).__MPA_API__) || "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -29,6 +29,7 @@ export type FamilyMember = {
   diet?: string;
   allergies?: string[];
   preferences?: string[];
+  telegram?: string;
 };
 
 export type OnboardPayload = {
@@ -39,6 +40,9 @@ export type OnboardPayload = {
   goal: "weight_loss" | "muscle_gain" | "maintenance";
   weekly_budget: number;
   telegram?: string;
+  dietary_preference?: string;
+  allergies?: string[];
+  preferences?: string[];
   family?: FamilyMember[];
 };
 

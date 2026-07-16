@@ -19,6 +19,7 @@ from database import (
     get_latest_plan,
     update_plan_status,
 )
+from onboarding_utils import normalize_family_member
 from tools import ALL_TOOLS, openai_client
 
 
@@ -259,13 +260,15 @@ def run_onboarding(
         family_count = 0
 
         for member in family_members:
+            normalized_member = normalize_family_member(member)
             result = add_family_member(
                 user_id=user_id,
-                name=member.get("name", "Family Member"),
-                age=member.get("age", 0),
-                dietary_type=member.get("dietary_type", "non-vegetarian"),
-                allergies=member.get("allergies", []),
-                preferences=member.get("preferences", []),
+                name=normalized_member.get("name", "Family Member"),
+                age=normalized_member.get("age", 0),
+                dietary_type=normalized_member.get("dietary_type", "vegetarian"),
+                allergies=normalized_member.get("allergies", []),
+                preferences=normalized_member.get("preferences", []),
+                telegram=normalized_member.get("telegram", ""),
             )
             if result and "id" in result:
                 family_count += 1
