@@ -216,3 +216,18 @@ def update_plan_status(plan_id, status):
     except Exception as exc:
         print(f"⚠️ Error updating plan status: {exc}")
         return {}
+
+
+def get_user_history(user_id):
+    try:
+        result = (
+            supabase.table("meal_plans")
+            .select("*, day_meals(*)")
+            .eq("user_id", user_id)
+            .order("week_start", desc=True)
+            .execute()
+        )
+        return result.data or []
+    except Exception as exc:
+        print(f"⚠️ Error fetching user history for {user_id}: {exc}")
+        return []

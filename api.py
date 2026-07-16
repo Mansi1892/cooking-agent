@@ -1,4 +1,129 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import List, Optional
+import uvicorn
+
+from database import (
+    create_user,
+    get_user,
+    add_family_member,
+    save_meal_plan,
+    get_latest_plan,
+    save_grocery_list,
+    save_feedback,
+    get_user_history,
+)
+from agent import run_onboarding, generate_meal_plan
+
+app = FastAPI(title="Cooking Agent API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class UserProfile(BaseModel):
+    name: str
+    email: Optional[str]
+    timezone: Optional[str]
+    dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+
+
+class FamilyMember(BaseModel):
+    name: str
+    age: Optional[int]
+    dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+
+
+class OnboardingRequest(BaseModel):
+    user: UserProfile
+    family: Optional[List[FamilyMember]] = Field(default_factory=list)
+
+
+class FeedbackRequest(BaseModel):
+    user_id: str
+    plan_id: str
+    rating: Optional[int]
+    notes: Optional[str]
+
+
+@app.on_event("startup")
+async def startup_event():
+    # Basic sanity check: try to import DB functions and agent
+    try:
+        _ = get_user
+    except Exception:
+        raise
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/onboard")
+async def onboard(payload: OnboardingRequest):
+    # Create user and family members, then run onboarding agent
+    user_data = payload.user.dict()
+    user = create_user(user_data)
+    for member in payload.family:
+        add_family_member(user_id=user["id"], member=member.dict())
+    # Run onboarding agent (async-friendly wrapper inside agent module)
+    plan = run_onboarding(user["id"])  # returns initial plan dict or id
+    return {"user": user, "plan": plan}
+
+
+@app.post("/plan/generate/{user_id}")
+async def plan_generate(user_id: str):
+    user = get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    plan = generate_meal_plan(user_id)
+    if not plan:
+        raise HTTPException(status_code=500, detail="Plan generation failed")
+    saved = save_meal_plan(user_id=user_id, plan=plan)
+    return {"plan": plan, "saved": saved}
+
+
+@app.get("/plan/{plan_id}")
+async def get_plan(plan_id: str):
+    plan = get_latest_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"plan": plan}
+
+
+@app.get("/grocery/{plan_id}")
+async def get_grocery(plan_id: str):
+    plan = get_latest_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    grocery = plan.get("grocery_list") or []
+    # Optionally persist grocery list
+    save_grocery_list(plan_id=plan_id, grocery_list=grocery)
+    return {"grocery": grocery}
+
+
+@app.post("/feedback")
+async def feedback(payload: FeedbackRequest):
+    saved = save_feedback(payload.user_id, payload.plan_id, payload.dict())
+    return {"saved": bool(saved)}
+
+
+@app.get("/history/{user_id}")
+async def history(user_id: str):
+    hist = get_user_history(user_id)
+    return {"history": hist}
+
+
+if __name__ == "__main__":
+    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
