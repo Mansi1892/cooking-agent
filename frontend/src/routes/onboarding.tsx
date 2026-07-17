@@ -13,6 +13,7 @@ export const Route = createFileRoute("/onboarding")({
 });
 
 const STEPS = ["Personal", "Family", "Review", "Success"];
+const DIET_OPTIONS = ["Vegetarian", "Eggetarian", "Vegan", "Non-vegetarian", "Pescatarian", "Keto"];
 
 function Onboarding() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ function Onboarding() {
     age: 28,
     weight: 70,
     height: 170,
-    weekly_budget: 80,
+    weekly_budget: 2500,
     telegram: "",
     goal: "maintenance",
     dietary_preference: "Vegetarian",
@@ -35,13 +36,25 @@ function Onboarding() {
   });
 
   const update = (patch: Partial<OnboardPayload>) => setForm((f) => ({ ...f, ...patch }));
+  const personalErrors = validatePersonal(form);
+  const familyErrors = validateFamily(form.family ?? []);
 
   const canNext =
-    step === 0 ? form.name.trim().length > 1 && form.age > 0 && form.weight > 0 && form.height > 0 :
-    step === 1 ? true :
+    step === 0 ? Object.keys(personalErrors).length === 0 :
+    step === 1 ? Object.keys(familyErrors).length === 0 :
     step === 2 ? true : false;
 
   async function submit() {
+    const errors = validatePersonal(form);
+    if (Object.keys(errors).length > 0) {
+      toast.error("Please fix profile details", { description: Object.values(errors)[0] });
+      return;
+    }
+    const memberErrors = validateFamily(form.family ?? []);
+    if (Object.keys(memberErrors).length > 0) {
+      toast.error("Please fix family members", { description: Object.values(memberErrors)[0] });
+      return;
+    }
     setSubmitting(true);
     try {
       let id = "demo-user-" + Math.random().toString(36).slice(2, 8);
@@ -52,6 +65,11 @@ function Onboarding() {
         toast.message("Using demo mode", { description: "Backend unreachable — generated a local demo profile." });
       }
       setUserId(id);
+      storage.setAuthUser(storage.getAuthUser() || {
+        name: form.name,
+        email: "",
+        logged_in_at: new Date().toISOString(),
+      });
       storage.setUserId(id);
       storage.setUserName(form.name);
       storage.setGoal(form.goal);
@@ -103,7 +121,7 @@ function Onboarding() {
           {step === 0 && <StepPersonal form={form} update={update} />}
           {step === 1 && <StepFamily form={form} update={update} />}
           {step === 2 && <StepReview form={form} />}
-          {step === 3 && <StepSuccess userId={userId} onContinue={() => navigate({ to: "/" })} />}
+          {step === 3 && <StepSuccess onContinue={() => navigate({ to: "/" })} />}
 
           {step < 3 && (
             <div className="mt-10 flex items-center justify-between">
@@ -178,7 +196,38 @@ function input(extra = "") {
   return "w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm placeholder:text-text-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition " + extra;
 }
 
+function cleanNumber(value: string) {
+  const cleaned = value.replace(/^0+(?=\d)/, "");
+  return cleaned === "" ? 0 : Number(cleaned);
+}
+
+function validatePersonal(form: OnboardPayload) {
+  const errors: Record<string, string> = {};
+  if (!form.name?.trim()) errors.name = "Full name is required.";
+  if (!form.goal) errors.goal = "Goal is required.";
+  if (!form.dietary_preference) errors.dietary_preference = "Dietary preference is required.";
+  if (!Number.isFinite(Number(form.age)) || form.age < 1 || form.age > 120) errors.age = "Enter a valid age.";
+  if (!Number.isFinite(Number(form.weight)) || form.weight < 20 || form.weight > 300) errors.weight = "Enter a valid weight.";
+  if (!Number.isFinite(Number(form.height)) || form.height < 80 || form.height > 250) errors.height = "Enter a valid height.";
+  if (Number(form.weekly_budget || 0) < 1500) errors.weekly_budget = "Budget is too low. Please enter at least ₹1500.";
+  return errors;
+}
+
+function validateFamily(family: FamilyMember[]) {
+  const errors: Record<number, string> = {};
+  family.forEach((member, index) => {
+    if (!member.name?.trim()) errors[index] = "Family member name is required. Delete this row if you do not want to add them.";
+    if (!member.diet) errors[index] = "Dietary preference is required.";
+  });
+  return errors;
+}
+
+function ErrorText({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] text-destructive mt-1">{children}</div>;
+}
+
 function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Partial<OnboardPayload>) => void }) {
+  const errors = validatePersonal(form);
   const goals = [
     { id: "weight_loss", title: "Weight Loss", desc: "Lean, sustainable calorie deficit", icon: Minus },
     { id: "muscle_gain", title: "Muscle Gain", desc: "High-protein, surplus calories", icon: TrendingUp },
@@ -192,21 +241,26 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
       <div className="mt-7 grid sm:grid-cols-2 gap-4">
         <Field label="Full name">
           <input className={input()} value={form.name} onChange={(e) => update({ name: e.target.value })} placeholder="Mansi Sharma" />
+          {errors.name && <ErrorText>{errors.name}</ErrorText>}
         </Field>
         <Field label="Age">
-          <input type="number" className={input()} value={form.age} onChange={(e) => update({ age: Number(e.target.value) })} />
+          <input type="number" className={input()} value={form.age || ""} onChange={(e) => update({ age: cleanNumber(e.target.value) })} />
+          {errors.age && <ErrorText>{errors.age}</ErrorText>}
         </Field>
         <Field label="Weight (kg)">
-          <input type="number" className={input()} value={form.weight} onChange={(e) => update({ weight: Number(e.target.value) })} />
+          <input type="number" className={input()} value={form.weight || ""} onChange={(e) => update({ weight: cleanNumber(e.target.value) })} />
+          {errors.weight && <ErrorText>{errors.weight}</ErrorText>}
         </Field>
         <Field label="Height (cm)">
-          <input type="number" className={input()} value={form.height} onChange={(e) => update({ height: Number(e.target.value) })} />
+          <input type="number" className={input()} value={form.height || ""} onChange={(e) => update({ height: cleanNumber(e.target.value) })} />
+          {errors.height && <ErrorText>{errors.height}</ErrorText>}
         </Field>
-        <Field label="Weekly grocery budget (USD)">
-          <input type="number" className={input()} value={form.weekly_budget} onChange={(e) => update({ weekly_budget: Number(e.target.value) })} />
+        <Field label="Weekly meal budget (INR)" hint="Minimum ₹1500. ₹2500 is a good starting weekly budget.">
+          <input type="number" min={1500} step={100} className={input()} value={form.weekly_budget || ""} onChange={(e) => update({ weekly_budget: cleanNumber(e.target.value) })} />
+          {errors.weekly_budget && <ErrorText>{errors.weekly_budget}</ErrorText>}
         </Field>
-        <Field label="Telegram (optional)" hint="For daily plan reminders">
-          <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value })} placeholder="@username" />
+        <Field label="Telegram chat ID (optional)" hint="Open the bot and send /start to get this number">
+          <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value })} placeholder="123456789" />
         </Field>
       </div>
 
@@ -214,10 +268,13 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
         <Field label="Dietary preference">
           <select className={input()} value={form.dietary_preference ?? "Vegetarian"} onChange={(e) => update({ dietary_preference: e.target.value })}>
             <option value="Vegetarian">Vegetarian</option>
+            <option value="Eggetarian">Eggetarian</option>
             <option value="Vegan">Vegan</option>
             <option value="Non-vegetarian">Non-vegetarian</option>
             <option value="Pescatarian">Pescatarian</option>
+            <option value="Keto">Keto</option>
           </select>
+          {errors.dietary_preference && <ErrorText>{errors.dietary_preference}</ErrorText>}
         </Field>
         <Field label="Allergies (comma separated)">
           <input className={input()} value={(form.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="peanuts, shellfish" />
@@ -260,8 +317,9 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
 
 function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partial<OnboardPayload>) => void }) {
   const family = form.family ?? [];
+  const errors = validateFamily(family);
 
-  const add = () => update({ family: [...family, { name: "", diet: "Omnivore", allergies: [], preferences: [], telegram: "" }] });
+  const add = () => update({ family: [...family, { name: "", diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
   const remove = (i: number) => update({ family: family.filter((_, idx) => idx !== i) });
   const patch = (i: number, p: Partial<FamilyMember>) =>
     update({ family: family.map((m, idx) => (idx === i ? { ...m, ...p } : m)) });
@@ -287,10 +345,11 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
               <div className="grid sm:grid-cols-2 gap-3 flex-1">
                 <Field label="Name">
                   <input className={input()} value={m.name} onChange={(e) => patch(i, { name: e.target.value })} placeholder="e.g. Priya" />
+                  {errors[i] && <ErrorText>{errors[i]}</ErrorText>}
                 </Field>
                 <Field label="Diet">
                   <select className={input()} value={m.diet} onChange={(e) => patch(i, { diet: e.target.value })}>
-                    <option>Omnivore</option><option>Vegetarian</option><option>Vegan</option><option>Pescatarian</option><option>Keto</option>
+                    {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
                   </select>
                 </Field>
                 <Field label="Allergies (comma separated)">
@@ -299,8 +358,8 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                 <Field label="Preferences">
                   <input className={input()} value={(m.preferences ?? []).join(", ")} onChange={(e) => patch(i, { preferences: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="spicy, mediterranean" />
                 </Field>
-                <Field label="Telegram (optional)">
-                  <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="@username" />
+                <Field label="Telegram chat ID (optional)">
+                  <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="123456789" />
                 </Field>
               </div>
               <button onClick={() => remove(i)} className="size-8 rounded-md hover:bg-muted text-text-light hover:text-destructive grid place-items-center transition">
@@ -318,6 +377,7 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
 }
 
 function StepReview({ form }: { form: OnboardPayload }) {
+  const family = (form.family ?? []).filter((member) => member.name?.trim());
   return (
     <div className="animate-fade-up">
       <h2 className="text-2xl font-semibold tracking-tight">Review</h2>
@@ -338,7 +398,7 @@ function StepReview({ form }: { form: OnboardPayload }) {
             <Row k="Dietary preference" v={form.dietary_preference || "Not set"} />
             <Row k="Allergies" v={(form.allergies ?? []).join(", ") || "None"} />
             <Row k="Preferences" v={(form.preferences ?? []).join(", ") || "None"} />
-            <Row k="Weekly budget" v={`$${form.weekly_budget}`} />
+            <Row k="Weekly budget" v={`₹${form.weekly_budget}`} />
             {form.telegram && <Row k="Telegram" v={form.telegram} />}
           </dl>
         </section>
@@ -348,16 +408,16 @@ function StepReview({ form }: { form: OnboardPayload }) {
             <div className="text-sm font-semibold">Family</div>
             <div className="text-[11px] uppercase tracking-wider text-text-light font-medium">Step 2</div>
           </div>
-          {!form.family || form.family.length === 0 ? (
+          {family.length === 0 ? (
             <div className="text-sm text-text-light mt-3">No additional members.</div>
           ) : (
             <ul className="mt-4 space-y-2">
-              {form.family.map((m, i) => (
+              {family.map((m, i) => (
                 <li key={i} className="flex items-center gap-3 text-sm">
                   <span className="size-7 rounded-full bg-primary-light text-primary grid place-items-center text-[11px] font-semibold">
-                    {(m.name || "?").slice(0, 1).toUpperCase()}
+                    {m.name.slice(0, 1).toUpperCase()}
                   </span>
-                  <span className="font-medium">{m.name || "Unnamed"}</span>
+                  <span className="font-medium">{m.name}</span>
                   <span className="text-text-light capitalize">· {m.diet}</span>
                 </li>
               ))}
@@ -378,18 +438,14 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-function StepSuccess({ userId, onContinue }: { userId: string; onContinue: () => void }) {
+function StepSuccess({ onContinue }: { onContinue: () => void }) {
   return (
     <div className="text-center pt-6 animate-fade-up">
       <div className="mx-auto size-20 rounded-full bg-success/10 text-success grid place-items-center animate-pop-in">
         <Check className="size-10" strokeWidth={3} />
       </div>
-      <h2 className="mt-6 text-2xl font-semibold tracking-tight">You're all set</h2>
+      <h2 className="mt-6 text-2xl font-semibold tracking-tight">Profile generated successfully</h2>
       <p className="mt-1.5 text-sm text-text-secondary">Your profile is ready. Let's generate your first plan.</p>
-      <div className="mt-6 inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2 text-xs text-text-secondary">
-        <span className="text-text-light">User ID</span>
-        <code className="font-mono text-text-primary">{userId}</code>
-      </div>
       <div className="mt-8">
         <button onClick={onContinue} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-5 py-2.5 text-sm font-medium hover:opacity-90 transition">
           Generate my first meal plan <Sparkles className="size-4" />

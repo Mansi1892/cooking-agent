@@ -15,23 +15,35 @@ def normalize_dietary_type(value: Any) -> Optional[str]:
 
     text = text.replace("_", "-")
 
+    if text in {"normal", "normal-diet", "normal diet", "regular", "regular-diet", "regular diet", "balanced", "no-preference", "no preference", "none"}:
+        return "normal"
+    if text in {"non-vegetarian", "non vegetarian", "omnivore", "meat-eater", "meat eater"}:
+        return "non-vegetarian"
+    if text in {"pescatarian", "pescetarian", "fish-based", "fish based"}:
+        return "pescatarian"
+    if text in {"keto", "ketogenic", "low-carb", "low carb"}:
+        return "keto"
+    if text in {"eggetarian", "eggitarian", "ovo-vegetarian", "ovo vegetarian", "egg-vegetarian", "egg vegetarian"}:
+        return "eggetarian"
     if text in {"vegetarian", "veg", "veggie", "veggie-only", "vegetarian-only"}:
         return "vegetarian"
     if text in {"vegan", "plant-based", "plant based"}:
         return "vegan"
-    if text in {"non-vegetarian", "non vegetarian", "omnivore", "meat-eater", "meat eater"}:
-        return "non-vegetarian"
-    if text in {"pescatarian", "fish-based", "fish based"}:
-        return "non-vegetarian"
 
-    if "vegetarian" in text:
-        return "vegetarian"
-    if "vegan" in text:
-        return "vegan"
+    if "normal diet" in text or "regular diet" in text or "no preference" in text:
+        return "normal"
     if "non-vegetarian" in text or "non vegetarian" in text or "omnivore" in text:
         return "non-vegetarian"
     if "pesc" in text or "fish" in text:
-        return "non-vegetarian"
+        return "pescatarian"
+    if "keto" in text or "ketogenic" in text or "low-carb" in text or "low carb" in text:
+        return "keto"
+    if "eggetarian" in text or "eggitarian" in text or "ovo-vegetarian" in text or "ovo vegetarian" in text or "egg vegetarian" in text:
+        return "eggetarian"
+    if "vegan" in text:
+        return "vegan"
+    if "vegetarian" in text:
+        return "vegetarian"
 
     return None
 
@@ -53,12 +65,22 @@ def normalize_family_member(member: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(preferences, str):
             preferences = [preferences]
         preference_text = " ".join(str(p).lower() for p in preferences if p)
-        if "veg" in preference_text or "vegetarian" in preference_text:
-            dietary_type = "vegetarian"
+        if "normal diet" in preference_text or "regular diet" in preference_text or "no preference" in preference_text:
+            dietary_type = "normal"
+        elif "non-vegetarian" in preference_text or "non vegetarian" in preference_text or "omnivore" in preference_text:
+            dietary_type = "non-vegetarian"
+        elif "pesc" in preference_text or "fish" in preference_text:
+            dietary_type = "pescatarian"
+        elif "keto" in preference_text or "ketogenic" in preference_text or "low-carb" in preference_text or "low carb" in preference_text:
+            dietary_type = "keto"
+        elif "eggetarian" in preference_text or "eggitarian" in preference_text or "ovo-vegetarian" in preference_text or "ovo vegetarian" in preference_text or "egg vegetarian" in preference_text:
+            dietary_type = "eggetarian"
         elif "vegan" in preference_text:
             dietary_type = "vegan"
-        else:
+        elif "veg" in preference_text or "vegetarian" in preference_text:
             dietary_type = "vegetarian"
+        else:
+            dietary_type = "normal"
 
     allergies = member.get("allergies") or []
     if isinstance(allergies, str):

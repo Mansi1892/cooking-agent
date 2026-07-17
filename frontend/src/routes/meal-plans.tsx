@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  Sparkles, ChevronDown, ChevronUp, Clock, Flame, CheckCircle2, Loader2, ArrowRight,
+  Sparkles, ChevronDown, ChevronUp, Clock, Flame, CheckCircle2, Loader2, ArrowRight, BookOpen, X,
 } from "lucide-react";
-import { api, mock, safe, type MealPlan } from "@/lib/api";
+import { api, mock, safe, type MealPlan, type Recipe } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
 
@@ -24,16 +24,34 @@ function MealPlans() {
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [recipeLoading, setRecipeLoading] = useState(false);
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [progress, setProgress] = useState(0);
   const [openDay, setOpenDay] = useState<string | null>("Monday");
 
   useEffect(() => {
-    const id = storage.getLastPlanId();
-    if (id) safe(api.getPlan(id), mock.plan()).then((p) => { setPlan(p); setLoading(false); });
-    else { setPlan(mock.plan()); setLoading(false); }
+    const userId = storage.getUserId();
+    const profile = storage.getProfile();
+    if (userId) safe(api.getLatestPlan(userId).then((r) => r.plan), mock.plan(profile)).then((p) => { setPlan(p); setLoading(false); });
+    else { setPlan(mock.plan(profile)); setLoading(false); }
   }, []);
 
+  useEffect(() => {
+    const userId = storage.getUserId();
+    if (!userId || plan?.status === "approved") return;
+    const timer = window.setInterval(() => {
+      api.getLatestPlan(userId).then((result) => {
+        setPlan(result.plan);
+        if (result.plan.status === "approved") {
+          toast.success("Plan approved", { description: "Recipes are unlocked." });
+        }
+      }).catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [plan?.id, plan?.status]);
+
   async function generate() {
+    if (generating) return;
     setGenerating(true);
     setProgress(0);
     const userId = storage.getUserId() || "demo-user";
@@ -44,10 +62,16 @@ function MealPlans() {
     try {
       let newPlan: MealPlan;
       try {
-        newPlan = await api.generatePlan(userId);
+        const result = await api.generatePlan(userId);
+        newPlan = "plan" in result ? result.plan : result;
+        if ("telegram_sent" in result && result.telegram_sent) {
+          toast.success("Sent to Telegram for approval");
+        } else if ("telegram_queued" in result && result.telegram_queued) {
+          toast.success("Telegram send queued", { description: "Your plan will arrive shortly." });
+        }
       } catch {
         await new Promise((r) => setTimeout(r, 1500));
-        newPlan = mock.plan();
+        newPlan = mock.plan(storage.getProfile());
         toast.message("Generated demo plan", { description: "Backend unreachable — showing a beautiful sample." });
       }
       setPlan(newPlan);
@@ -60,9 +84,25 @@ function MealPlans() {
     }
   }
 
+  async function openRecipe(meal: { name: string; type: string }) {
+    const userId = storage.getUserId();
+    if (!userId) return;
+    setRecipe(null);
+    setRecipeLoading(true);
+    try {
+      const result = await api.generateRecipe({ user_id: userId, meal_name: meal.name, meal_type: meal.type });
+      setRecipe(result.recipe);
+    } catch (error) {
+      toast.error("Recipe not ready", { description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
+      setRecipeLoading(false);
+    }
+  }
+
   if (loading) return <SkeletonPage />;
 
   const s = plan?.week_summary ?? { healthy_score: 0, avg_calories: 0, avg_protein: 0, total_budget: 0 };
+  const recipesUnlocked = plan?.status === "approved";
 
   return (
     <div className="space-y-8 animate-fade-up">
@@ -82,7 +122,7 @@ function MealPlans() {
         <section className="rounded-2xl border border-border bg-surface shadow-soft p-6">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">Crafting your plan</div>
-            <div className="text-xs text-text-light">~30 seconds</div>
+            <div className="text-xs text-text-light">AI is working</div>
           </div>
           <div className="mt-4 h-1.5 rounded-full bg-muted overflow-hidden">
             <div className="h-full hero-gradient transition-all duration-300" style={{ width: `${progress}%` }} />
@@ -106,7 +146,7 @@ function MealPlans() {
         <SummaryStat label="Healthy Score" value={`${s.healthy_score}`} unit="/100" tone="success" />
         <SummaryStat label="Avg Calories" value={s.avg_calories.toLocaleString()} unit="kcal" tone="primary" />
         <SummaryStat label="Avg Protein" value={`${s.avg_protein}g`} tone="accent" />
-        <SummaryStat label="Weekly Budget" value={`$${s.total_budget}`} tone="warning" />
+        <SummaryStat label="Est. Grocery Cost" value={`₹${s.total_budget.toLocaleString()}`} tone="warning" />
       </section>
 
       {/* Days */}
@@ -153,6 +193,11 @@ function MealPlans() {
                           <span>·</span>
                           <span>{m.protein}g protein</span>
                         </div>
+                        {recipesUnlocked && (
+                          <button onClick={() => openRecipe(m)} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:text-primary hover:border-primary/30 transition">
+                            <BookOpen className="size-3.5" /> Recipe
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -172,6 +217,41 @@ function MealPlans() {
           Open grocery list <ArrowRight className="size-4" />
         </Link>
       </section>
+
+      {(recipeLoading || recipe) && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm grid place-items-center p-4">
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-auto rounded-2xl border border-border bg-surface shadow-elevated p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-primary font-semibold">Recipe</div>
+                <h2 className="mt-1 text-xl font-semibold">{recipe?.title || "Finding recipe..."}</h2>
+                {recipe && <p className="mt-1 text-sm text-text-secondary">{recipe.servings} servings · {recipe.prep_time || "Prep"} · {recipe.cook_time || "Cook"}</p>}
+              </div>
+              <button onClick={() => { setRecipe(null); setRecipeLoading(false); }} className="rounded-lg border border-border p-2 hover:bg-muted transition">
+                <X className="size-4" />
+              </button>
+            </div>
+            {recipeLoading && <div className="mt-6 flex items-center gap-2 text-sm text-text-secondary"><Loader2 className="size-4 animate-spin" /> Searching online and building recipe...</div>}
+            {recipe && (
+              <div className="mt-5 grid gap-5">
+                <section>
+                  <h3 className="text-sm font-semibold">Ingredients</h3>
+                  <ul className="mt-2 space-y-1.5 text-sm text-text-secondary">
+                    {recipe.ingredients.map((item, i) => <li key={i}>• {item}</li>)}
+                  </ul>
+                </section>
+                <section>
+                  <h3 className="text-sm font-semibold">Steps</h3>
+                  <ol className="mt-2 space-y-2 text-sm text-text-secondary">
+                    {recipe.steps.map((step, i) => <li key={i}>{i + 1}. {step}</li>)}
+                  </ol>
+                </section>
+                {recipe.nutrition_note && <p className="rounded-xl bg-primary-light/50 p-3 text-sm text-text-secondary">{recipe.nutrition_note}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

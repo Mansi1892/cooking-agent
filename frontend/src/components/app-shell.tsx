@@ -1,11 +1,20 @@
-import type { ReactNode } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import { AppSidebar, MobileTabBar } from "./app-sidebar";
+import { storage } from "@/lib/storage";
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const hideChrome = pathname.startsWith("/onboarding");
+  const hideChrome = pathname.startsWith("/onboarding") || pathname.startsWith("/login");
+  const isPublic = pathname.startsWith("/login");
+
+  useEffect(() => {
+    if (!isPublic && !storage.isLoggedIn()) {
+      navigate({ to: "/login" });
+    }
+  }, [isPublic, navigate]);
 
   if (hideChrome) return <>{children}</>;
 

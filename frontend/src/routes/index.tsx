@@ -29,20 +29,27 @@ function Dashboard() {
     const uid = storage.getUserId();
     setUserId(uid);
     setName((storage.getUserName() || "there").split(" ")[0]);
-    setStreak(storage.getStreak() || 5);
+    setStreak(storage.getStreak() || 0);
+    if (!storage.isLoggedIn()) {
+      navigate({ to: "/login" });
+      return;
+    }
     if (!uid) {
       navigate({ to: "/onboarding" });
       return;
     }
-    const planId = storage.getLastPlanId();
-    if (planId) {
-      safe(api.getPlan(planId), mock.plan()).then(setPlan);
+    if (uid) {
+      safe(api.getLatestPlan(uid).then((r) => r.plan), mock.plan(storage.getProfile())).then(setPlan);
+      api.getStreak(uid).then((result) => {
+        storage.setStreak(result.streak);
+        setStreak(result.streak);
+      }).catch(() => {});
     } else {
-      setPlan(mock.plan());
+      setPlan(mock.plan(storage.getProfile()));
     }
   }, [navigate]);
 
-  const summary = plan?.week_summary ?? { healthy_score: 92, avg_calories: 2050, avg_protein: 138, total_budget: 84 };
+  const summary = plan?.week_summary ?? mock.plan(storage.getProfile()).week_summary!;
 
   return (
     <div className="space-y-8 animate-fade-up">
@@ -63,7 +70,7 @@ function Dashboard() {
       <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <MetricCard icon={Activity} tint="primary" label="Avg Calories" value={summary.avg_calories.toLocaleString()} unit="kcal" delta="+2.1%" />
         <MetricCard icon={Drumstick} tint="accent" label="Protein" value={`${summary.avg_protein}g`} delta="+8g" />
-        <MetricCard icon={Wallet} tint="warning" label="Weekly Budget" value={`$${summary.total_budget}`} delta="-$6" deltaPositive />
+        <MetricCard icon={Wallet} tint="warning" label="Est. Grocery Cost" value={`₹${summary.total_budget.toLocaleString()}`} />
         <MetricCard icon={Heart} tint="success" label="Healthy Score" value={`${summary.healthy_score}`} unit="/100" delta="+4" deltaPositive />
         <MetricCard icon={Flame} tint="error" label="Streak" value={`${streak}`} unit="days" />
       </section>

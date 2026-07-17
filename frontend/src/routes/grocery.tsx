@@ -16,8 +16,9 @@ function Grocery() {
 
   useEffect(() => {
     const id = storage.getLastPlanId();
-    if (id) safe(api.getGrocery(id), mock.grocery()).then(setGroups);
-    else setGroups(mock.grocery());
+    const profile = storage.getProfile();
+    if (id) safe(api.getGrocery(id), mock.grocery(profile)).then(setGroups);
+    else setGroups(mock.grocery(profile));
   }, []);
 
   const filtered = useMemo(() => {

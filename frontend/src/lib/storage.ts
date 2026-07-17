@@ -5,6 +5,7 @@ const KEYS = {
   userName: "mpa_user_name",
   userGoal: "mpa_user_goal",
   telegram: "mpa_telegram_id",
+  authUser: "mpa_auth_user",
   streak: "mpa_streak",
   profile: "mpa_profile",
   lastPlanId: "mpa_last_plan_id",
@@ -32,6 +33,14 @@ export const storage = {
   setGoal: (v: string) => write(KEYS.userGoal, v),
   getTelegram: () => read(KEYS.telegram),
   setTelegram: (v: string) => write(KEYS.telegram, v),
+  getAuthUser: <T = any>(): T | null => {
+    const raw = read(KEYS.authUser);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  },
+  setAuthUser: (data: any) => write(KEYS.authUser, JSON.stringify(data)),
+  isLoggedIn: () => !!read(KEYS.authUser),
+  logout: () => write(KEYS.authUser, null),
   getStreak: () => Number(read(KEYS.streak) || "0"),
   setStreak: (n: number) => write(KEYS.streak, String(n)),
   getProfile: <T = any>(): T | null => {
@@ -42,5 +51,16 @@ export const storage = {
   setProfile: (data: any) => write(KEYS.profile, JSON.stringify(data)),
   getLastPlanId: () => read(KEYS.lastPlanId),
   setLastPlanId: (v: string) => write(KEYS.lastPlanId, v),
+  resetProfile: () => {
+    [
+      KEYS.userId,
+      KEYS.userName,
+      KEYS.userGoal,
+      KEYS.telegram,
+      KEYS.streak,
+      KEYS.profile,
+      KEYS.lastPlanId,
+    ].forEach((k) => write(k, null));
+  },
   clearAll: () => Object.values(KEYS).forEach((k) => write(k, null)),
 };

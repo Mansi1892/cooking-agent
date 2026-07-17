@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   CalendarRange,
@@ -8,8 +8,10 @@ import {
   ShoppingBasket,
   Sparkles,
   Flame,
+  LogOut,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { storage } from "@/lib/storage";
 
 const NAV = [
@@ -22,6 +24,7 @@ const NAV = [
 ];
 
 export function AppSidebar() {
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
@@ -31,10 +34,21 @@ export function AppSidebar() {
     setName(storage.getUserName() || "Guest");
     setGoal(storage.getGoal() || "Maintenance");
     setStreak(storage.getStreak() || 0);
+    const userId = storage.getUserId();
+    if (userId) {
+      api.getStreak(userId).then((result) => {
+        storage.setStreak(result.streak);
+        setStreak(result.streak);
+      }).catch(() => {});
+    }
   }, [pathname]);
 
   const isActive = (to: string, exact?: boolean) => (exact ? pathname === to : pathname === to || pathname.startsWith(to + "/"));
   const initials = name.split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase() || "U";
+  const logout = () => {
+    storage.logout();
+    navigate({ to: "/login" });
+  };
 
   return (
     <aside className="hidden md:flex w-[240px] shrink-0 flex-col border-r border-border bg-sidebar h-screen sticky top-0">
@@ -88,6 +102,12 @@ export function AppSidebar() {
               <Flame className="size-3" /> {streak} days
             </span>
           </div>
+          <button
+            onClick={logout}
+            className="mt-2 w-full flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs font-medium text-text-secondary hover:text-destructive hover:border-destructive/30 transition"
+          >
+            <LogOut className="size-3.5" /> Logout
+          </button>
         </div>
       </div>
     </aside>
@@ -95,8 +115,13 @@ export function AppSidebar() {
 }
 
 export function MobileTabBar() {
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const items = NAV.slice(0, 5);
+  const items = NAV.slice(0, 4);
+  const logout = () => {
+    storage.logout();
+    navigate({ to: "/login" });
+  };
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 glass border-t border-border">
       <div className="grid grid-cols-5">
@@ -110,6 +135,10 @@ export function MobileTabBar() {
             </Link>
           );
         })}
+        <button onClick={logout} className="flex flex-col items-center gap-1 py-2.5">
+          <LogOut className="size-5 text-text-light" />
+          <span className="text-[10px] text-text-light">Logout</span>
+        </button>
       </div>
     </nav>
   );

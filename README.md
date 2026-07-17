@@ -1,234 +1,193 @@
-# AI Meal Planner
+# Smart Meal AI
 
-An AI-powered meal-planning application that helps users create personalized weekly meal plans for Indian households using a LangChain-based RAG agent, FastAPI backend services, Supabase persistence, and a React/Vite frontend.
+AI-powered meal planning for Indian households. The app has a FastAPI backend, a React/TanStack frontend, Supabase persistence, LangChain-style recipe tooling, and optional Telegram plan approval.
 
-## 1. Overview
+## Current Status
 
-This project combines:
-- a Python FastAPI backend for onboarding, meal-plan generation, history, and grocery-list access
-- a LangChain-based agent that researches recipes, analyzes user profile data, and prepares meal-plan recommendations
-- Supabase-backed persistence for users, family members, meal plans, day-by-day meals, grocery lists, and feedback
-- a modern frontend experience built with Vite and React
-- Telegram bot integration for plan approval and feedback workflows
+- Frontend dev server: `http://127.0.0.1:8080/`
+- Backend API: `http://127.0.0.1:8000`
+- Backend health: `GET http://127.0.0.1:8000/health`
+- Login route: `http://127.0.0.1:8080/login`
 
-## 2. Features
+The current login is a local/demo login stored in browser localStorage. It gates the UI, then sends new users to onboarding. Real backend authentication can be added later with Supabase Auth or custom API endpoints.
 
-- Personalized 7-day meal planning based on user goals such as weight loss, muscle gain, or maintenance
-- Family-aware planning with dietary preferences and allergy awareness
-- Recipe retrieval from a local Supabase-backed knowledge base plus web research
-- Grocery-list generation for the planned meals
-- Telegram bot support for plan review, approval, and feedback
-- REST API endpoints for onboarding, meal-plan generation, and history lookup
-- Clean frontend experience for dashboard, meal-plan browsing, grocery viewing, and history
+## Features
 
-## 3. Architecture and Request Flow
+- Local login/signup screen before onboarding
+- Onboarding for personal profile, family members, goals, budget, allergies, preferences, and Telegram chat ID
+- Goals: weight loss, muscle gain, maintenance
+- Dietary preferences: vegetarian, eggetarian, vegan, non-vegetarian, pescatarian, keto
+- AI-generated 7-day meal plans
+- Diet-aware plan generation prompts and diet-aware frontend fallback data
+- Grocery list and meal-plan history views
+- Telegram bot support for sending plans for approval and collecting feedback
+- Supabase-backed storage for users, family members, meal plans, day meals, grocery lists, and feedback
 
-1. A user completes onboarding through the frontend or API.
-2. The FastAPI backend stores user and family details in Supabase.
-3. The LangChain agent uses tools such as recipe search, profile analysis, nutrition lookups, and grocery generation.
-4. The agent produces a structured 7-day meal plan and saves it to Supabase.
-5. The frontend displays the generated meal plan and grocery data.
-6. The Telegram bot can send the plan for approval and handle feedback/regeneration.
+## Architecture
 
-Typical request flow:
-- Frontend or client calls `/onboard`
-- Backend creates user/family records and triggers onboarding logic
-- Client calls `/plan/generate/{user_id}` or `/meal-plan/generate`
-- Agent builds a plan and stores it in Supabase
-- Frontend reads the plan and grocery list from the API
+```text
+React frontend
+  -> FastAPI backend
+  -> Supabase persistence
+  -> LangChain-style agent/tools
+  -> OpenAI/OpenRouter + Tavily + recipe DB
+  -> Optional Telegram bot approval flow
+```
 
-## 4. Technology Stack
-
-### Backend
-- Python 3.9+
-- FastAPI
-- Uvicorn
-- LangChain
-- OpenAI API / OpenRouter-compatible chat model
-- Supabase Python client
-- python-dotenv
-- Pydantic
-
-### Frontend
-- React
-- Vite
-- TypeScript
-- Tailwind CSS
-- TanStack Router / React Query
-
-### Integrations
-- Telegram Bot API
-- Tavily web search
-- Supabase Postgres + vector support
-
-## 5. Project Folder Structure
+## Project Structure
 
 ```text
 cooking-agent/
-├── api.py                  # FastAPI application and REST endpoints
-├── agent.py                # LangChain agent orchestration and plan generation
-├── config.py               # Environment variable loading and app constants
-├── database.py             # Supabase CRUD helpers
-├── ingest.py               # Recipe ingestion and embedding seeding
-├── tools.py                # LangChain tools used by the agent
-├── telegram_bot.py         # Telegram bot handlers and messaging logic
-├── requirements.txt        # Python dependencies
-├── frontend/               # React/Vite frontend application
-│   └── package.json
-└── README.md               # Project documentation
+├── api.py                         # FastAPI routes
+├── agent.py                       # Agent orchestration and structured meal-plan generation
+├── config.py                      # Goal targets, dietary types, env loading
+├── database.py                    # Supabase CRUD helpers
+├── ingest.py                      # Recipe seed/ingestion helper
+├── onboarding_utils.py            # Diet/family payload normalization
+├── telegram_bot.py                # Telegram polling, approval, feedback
+├── tools.py                       # Agent tools: recipe search, profile analysis, grocery, Telegram
+├── requirements.txt               # Python dependencies
+└── frontend/
+    ├── src/routes/login.tsx       # Local demo login
+    ├── src/routes/onboarding.tsx  # Profile and family onboarding
+    ├── src/routes/meal-plans.tsx
+    ├── src/routes/grocery.tsx
+    ├── src/routes/history.tsx
+    ├── src/lib/api.ts
+    └── src/lib/storage.ts
 ```
 
-## 6. Prerequisites
+## Environment
 
-Before running the project, make sure you have:
-- Python 3.9 or newer
-- Node.js and npm
-- A Supabase project with the necessary tables and RPC support
-- OpenAI-compatible API credentials
-- Tavily API credentials
-- A Telegram bot token
+Create `cooking-agent/.env`:
 
-## 7. Backend Setup Instructions
+```env
+OPENAI_API_KEY=your_openai_or_openrouter_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your_supabase_service_role_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+TAVILY_API_KEY=your_tavily_key
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+```
 
-1. Create and activate a virtual environment:
+Do not commit real secrets.
+
+## Backend Setup
+
+This project currently has a local virtualenv named `venv`.
 
 ```bash
 cd cooking-agent
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-2. Install Python dependencies:
-
-```bash
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Copy the environment template and fill in the required values:
-
-```bash
-cp .env.example .env
-```
-
-4. Configure your Supabase and API credentials in `.env`.
-
-## 8. Frontend Setup Instructions
-
-1. Move into the frontend folder:
-
-```bash
-cd frontend
-```
-
-2. Install frontend dependencies:
-
-```bash
-npm install
-```
-
-## 9. Environment Variables Required
-
-Create a `.env` file using the following placeholder values:
-
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_supabase_service_role_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
-TAVILY_API_KEY=your_tavily_api_key_here
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-```
-
-> Only placeholder values should be used. Do not commit real secrets.
-
-## 10. How to Run the FastAPI Backend
-
-From the repository root:
+Start the backend:
 
 ```bash
 cd cooking-agent
-source .venv/bin/activate
-python -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
+venv/bin/python -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
-The API will be available at:
-- http://127.0.0.1:8000
+Health check:
 
-## 11. How to Run the Frontend
+```bash
+curl http://127.0.0.1:8000/health
+```
 
-From the frontend folder:
+Expected:
+
+```json
+{"status":"ok"}
+```
+
+## Frontend Setup
 
 ```bash
 cd cooking-agent/frontend
-npm run dev -- --host 127.0.0.1
+npm install
+npm run dev -- --host 127.0.0.1 --port 8080
 ```
 
-The frontend dev server will be available at:
-- http://127.0.0.1:8081
+Open:
 
-## 12. How to Run the Telegram Bot
+```text
+http://127.0.0.1:8080/
+```
 
-From the repository root:
+## User Flow
+
+1. User opens the frontend.
+2. If not logged in locally, user is redirected to `/login`.
+3. Login/signup stores a local session.
+4. If no backend `user_id` exists yet, user is sent to `/onboarding`.
+5. Onboarding saves the user/family profile through the backend.
+6. Meal plans are generated and saved using the backend `user_id`.
+7. Grocery/history views read the saved plan data or use diet-aware demo fallback data if the backend is unreachable.
+
+## Telegram Flow
+
+Telegram requires a bot and numeric chat ID.
+
+1. Create a bot with Telegram `@BotFather`.
+2. Put the token in `.env` as `TELEGRAM_BOT_TOKEN`.
+3. Start the bot:
 
 ```bash
 cd cooking-agent
-source .venv/bin/activate
-python telegram_bot.py
+venv/bin/python telegram_bot.py
 ```
 
-The bot will start polling Telegram for commands and callback updates.
+4. Open your bot in Telegram and send `/start`.
+5. The bot replies with your numeric Telegram chat ID.
+6. Paste that number into the app's `Telegram chat ID` field.
+7. When a plan is generated, the backend sends it to Telegram for approval if a chat ID is saved.
 
-## 13. API Endpoints
+Do not use `@username`; Telegram sending needs the numeric chat ID.
 
-The FastAPI backend currently exposes these routes:
+## API Endpoints
 
-### Health
 - `GET /health`
-
-### Onboarding
+- `GET /api/health`
 - `POST /onboard`
-
-### Meal plan generation
+- `POST /api/onboard`
 - `POST /plan/generate/{user_id}`
-
-### Plan retrieval
+- `POST /api/plan/generate/{user_id}`
 - `GET /plan/{plan_id}`
-
-### Grocery list
+- `GET /api/plan/{plan_id}`
 - `GET /grocery/{plan_id}`
-
-### Feedback
+- `GET /history/{user_id}`
 - `POST /feedback`
 
-### History
-- `GET /history/{user_id}`
+## Validation
 
-## 14. Testing Instructions
-
-Run backend checks and import validation:
+Backend:
 
 ```bash
 cd cooking-agent
-source .venv/bin/activate
-python -m py_compile api.py agent.py database.py tools.py telegram_bot.py
+PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache python3 -m py_compile api.py agent.py database.py tools.py telegram_bot.py onboarding_utils.py config.py
+venv/bin/python -m pip check
+curl http://127.0.0.1:8000/health
 ```
 
-Run frontend validation:
+Frontend:
 
 ```bash
 cd cooking-agent/frontend
 npm run build
 ```
 
-## 15. Future Improvements
+## Notes
 
-- Add richer meal-plan personalization using more detailed health metrics
-- Improve the agent prompt and retrieval quality for better recipe matching
-- Add user authentication and role-based access control
-- Add support for more cuisines and dietary restrictions
-- Improve frontend state management and plan editing workflows
-- Add automated end-to-end tests for onboarding and meal-plan generation
+- The frontend dev server should run on `8080`.
+- The backend should run on `8000`.
+- If a vegetarian user sees chicken/fish/eggs, clear local storage or reset the profile and generate a new plan; old demo data may be cached in the browser.
+- Existing users with `telegram_id` saved as `@username` should be updated to the numeric Telegram chat ID.
 
-## License
+## Future Improvements
 
-This project is for personal and educational use unless otherwise specified.
+- Replace local/demo login with real Supabase Auth or backend auth
+- Add edit/regenerate controls for individual meals/days
+- Add richer grocery persistence and grocery export
+- Add automated end-to-end tests
+- Add dedicated keto/pescatarian/eggetarian seed recipes for better local DB retrieval

@@ -1,24 +1,106 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Pencil, Target, Activity, Flame, User as UserIcon } from "lucide-react";
+import { Activity, Flame, Pencil, Plus, Save, Target, Trash2, User as UserIcon, Wallet, X } from "lucide-react";
+import { toast } from "sonner";
 import { storage } from "@/lib/storage";
+import { api, type FamilyMember, type OnboardPayload } from "@/lib/api";
 
 export const Route = createFileRoute("/profile")({
   component: Profile,
 });
 
+const DIET_OPTIONS = ["Vegetarian", "Eggetarian", "Vegan", "Non-vegetarian", "Pescatarian", "Keto"];
+const GOALS = [
+  { value: "weight_loss", label: "Weight loss" },
+  { value: "muscle_gain", label: "Muscle gain" },
+  { value: "maintenance", label: "Maintenance" },
+] as const;
+
 function Profile() {
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<OnboardPayload | null>(null);
+  const [savedProfile, setSavedProfile] = useState<OnboardPayload | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [streak, setStreak] = useState(0);
 
   useEffect(() => {
-    setProfile(storage.getProfile() || { name: storage.getUserName() || "Guest", goal: storage.getGoal() || "maintenance", weight: 70, height: 170, age: 28, weekly_budget: 80, family: [] });
-    setStreak(storage.getStreak() || 5);
+    const loadedProfile = storage.getProfile<OnboardPayload>() || {
+      name: storage.getUserName() || "Guest",
+      age: 28,
+      weight: 70,
+      height: 170,
+      goal: "maintenance",
+      weekly_budget: 2500,
+      telegram: storage.getTelegram() || "",
+      dietary_preference: "Vegetarian",
+      allergies: [],
+      preferences: [],
+      family: [],
+    };
+    setProfile(loadedProfile);
+    setSavedProfile(loadedProfile);
+    setStreak(storage.getStreak());
+    const userId = storage.getUserId();
+    if (userId) {
+      api.getStreak(userId).then((result) => {
+        storage.setStreak(result.streak);
+        setStreak(result.streak);
+      }).catch(() => {});
+    }
   }, []);
 
   if (!profile) return null;
-  const bmi = profile.weight && profile.height ? (profile.weight / Math.pow(profile.height / 100, 2)).toFixed(1) : "—";
+
+  const update = (patch: Partial<OnboardPayload>) => setProfile((p) => p ? { ...p, ...patch } : p);
+  const family = profile.family ?? [];
+  const errors = validateProfile(profile);
+  const familyErrors = validateFamily(family);
+  const budgetIsValid = !errors.weekly_budget;
+  const profileIsValid = Object.keys(errors).length === 0 && Object.keys(familyErrors).length === 0;
+  const bmi = profile.weight && profile.height ? (profile.weight / Math.pow(profile.height / 100, 2)).toFixed(1) : "-";
   const initials = (profile.name || "U").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase();
+
+  function patchFamily(index: number, patch: Partial<FamilyMember>) {
+    update({ family: family.map((m, i) => (i === index ? { ...m, ...patch } : m)) });
+  }
+
+  function addFamily() {
+    update({ family: [...family, { name: "", diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
+  }
+
+  function removeFamily(index: number) {
+    update({ family: family.filter((_, i) => i !== index) });
+  }
+
+  async function save() {
+    if (!profileIsValid) {
+      toast.error("Please fix profile details", { description: Object.values(errors)[0] || Object.values(familyErrors)[0] });
+      return;
+    }
+    setSaving(true);
+    try {
+      const userId = storage.getUserId();
+      if (userId) {
+        await api.updateProfile(userId, profile);
+      }
+      storage.setProfile(profile);
+      storage.setUserName(profile.name);
+      storage.setGoal(profile.goal);
+      if (profile.telegram) storage.setTelegram(profile.telegram);
+      setSavedProfile(profile);
+      setIsEditing(false);
+      toast.success("Profile updated");
+    } catch (error) {
+      toast.error("Profile was not saved", { description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelEdit() {
+    if (savedProfile) setProfile(savedProfile);
+    setIsEditing(false);
+  }
 
   return (
     <div className="space-y-8 animate-fade-up">
@@ -27,71 +109,253 @@ function Profile() {
           {initials}
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{profile.name}</h1>
-          <p className="text-sm text-text-secondary capitalize mt-0.5">Goal · {String(profile.goal).replace("_", " ")} · {streak}-day streak 🔥</p>
+          <h1 className="text-2xl font-semibold tracking-tight truncate">{profile.name || "Guest"}</h1>
+          <p className="text-sm text-text-secondary capitalize mt-0.5">
+            {String(profile.goal).replace("_", " ")} · {streak}-day streak
+          </p>
         </div>
-        <Link to="/settings" className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium hover:bg-muted transition">
-          <Pencil className="size-4" /> Edit profile
-        </Link>
+        {isEditing ? (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={cancelEdit} className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium hover:bg-muted transition">
+              <X className="size-4" /> Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={!profileIsValid || saving}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition shadow-soft disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="size-4" /> {saving ? "Saving..." : "Save profile"}
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setIsEditing(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition shadow-soft">
+            <Pencil className="size-4" /> Edit profile
+          </button>
+        )}
       </header>
 
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
         <Stat icon={Target} label="Weight" value={`${profile.weight} kg`} />
         <Stat icon={Activity} label="Height" value={`${profile.height} cm`} />
         <Stat icon={Flame} label="BMI" value={bmi} />
         <Stat icon={UserIcon} label="Age" value={`${profile.age}`} />
+        <Stat icon={Wallet} label="Meal Budget" value={`₹${profile.weekly_budget}`} tone={budgetIsValid ? "default" : "error"} />
       </section>
-
-      <section className="grid lg:grid-cols-2 gap-5">
-        <div className="rounded-2xl border border-border bg-surface shadow-soft p-6">
-          <h3 className="text-sm font-semibold">Health preferences</h3>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {["High-protein", "Mediterranean", "Low sugar", "Whole foods", "Plant-forward"].map((t) => (
-              <span key={t} className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary-light text-primary">{t}</span>
-            ))}
-          </div>
-          <h3 className="mt-6 text-sm font-semibold">Allergies</h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {["Peanuts"].map((t) => (
-              <span key={t} className="text-xs font-medium px-2.5 py-1 rounded-full bg-destructive/10 text-destructive">{t}</span>
-            ))}
-          </div>
+      {!budgetIsValid && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          Weekly meal budget is too low. Enter at least ₹1500 before saving or generating a meal plan.
         </div>
+      )}
 
-        <div className="rounded-2xl border border-border bg-surface shadow-soft p-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Family members</h3>
-            <span className="text-xs text-text-light">{(profile.family ?? []).length} added</span>
-          </div>
-          <ul className="mt-4 space-y-2">
-            {(profile.family ?? []).length === 0 && (
-              <li className="text-sm text-text-light">No family members yet.</li>
-            )}
-            {(profile.family ?? []).map((m: any, i: number) => (
-              <li key={i} className="flex items-center gap-3 rounded-lg border border-border p-3">
-                <span className="size-9 rounded-full bg-primary-light text-primary grid place-items-center text-xs font-semibold">
-                  {(m.name || "?").slice(0,1).toUpperCase()}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{m.name || "Unnamed"}</div>
-                  <div className="text-xs text-text-light capitalize">{m.diet}</div>
+      {!isEditing && (
+        <>
+          <section className="rounded-2xl border border-border bg-surface shadow-soft p-6">
+            <h2 className="text-sm font-semibold">Profile details</h2>
+            <div className="mt-5 grid sm:grid-cols-2 gap-3">
+              <Detail label="Goal" value={String(profile.goal).replace("_", " ")} />
+              <Detail label="Dietary preference" value={profile.dietary_preference || "Vegetarian"} />
+              <Detail label="Weekly meal budget" value={`₹${profile.weekly_budget}`} />
+              <Detail label="Telegram chat ID" value={profile.telegram || "Not added"} />
+              <Detail label="Allergies" value={(profile.allergies ?? []).join(", ") || "None"} />
+              <Detail label="Preferences" value={(profile.preferences ?? []).join(", ") || "None"} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border bg-surface shadow-soft p-6">
+            <h2 className="text-sm font-semibold">Family members</h2>
+            <div className="mt-5 space-y-3">
+              {family.length === 0 && <div className="text-sm text-text-light rounded-xl border border-dashed border-border p-6 text-center">No family members yet.</div>}
+              {family.map((member, index) => (
+                <div key={index} className="rounded-xl border border-border p-4">
+                  <div className="font-medium">{member.name || `Family member ${index + 1}`}</div>
+                  <div className="mt-1 text-sm text-text-secondary capitalize">{member.diet || "Vegetarian"}</div>
+                  <div className="mt-3 grid sm:grid-cols-3 gap-3">
+                    <Detail label="Allergies" value={(member.allergies ?? []).join(", ") || "None"} compact />
+                    <Detail label="Preferences" value={(member.preferences ?? []).join(", ") || "None"} compact />
+                    <Detail label="Telegram" value={member.telegram || "Not added"} compact />
+                  </div>
                 </div>
-              </li>
-            ))}
-          </ul>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+
+      {isEditing && <section className="rounded-2xl border border-border bg-surface shadow-soft p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Main profile</h2>
+            <p className="text-xs text-text-light mt-0.5">Update the profile details used by the app UI.</p>
+          </div>
         </div>
-      </section>
+        <div className="mt-5 grid sm:grid-cols-2 gap-4">
+          <Field label="Full name">
+            <input className={input()} value={profile.name} onChange={(e) => update({ name: e.target.value })} />
+            {errors.name && <ErrorText>{errors.name}</ErrorText>}
+          </Field>
+          <Field label="Goal">
+            <select className={input()} value={profile.goal} onChange={(e) => update({ goal: e.target.value as OnboardPayload["goal"] })}>
+              {GOALS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+            </select>
+            {errors.goal && <ErrorText>{errors.goal}</ErrorText>}
+          </Field>
+          <Field label="Age">
+            <input type="number" className={input()} value={profile.age || ""} onChange={(e) => update({ age: cleanNumber(e.target.value) })} />
+            {errors.age && <ErrorText>{errors.age}</ErrorText>}
+          </Field>
+          <Field label="Weight (kg)">
+            <input type="number" className={input()} value={profile.weight || ""} onChange={(e) => update({ weight: cleanNumber(e.target.value) })} />
+            {errors.weight && <ErrorText>{errors.weight}</ErrorText>}
+          </Field>
+          <Field label="Height (cm)">
+            <input type="number" className={input()} value={profile.height || ""} onChange={(e) => update({ height: cleanNumber(e.target.value) })} />
+            {errors.height && <ErrorText>{errors.height}</ErrorText>}
+          </Field>
+          <Field label="Weekly meal budget (INR)" hint="Minimum ₹1500. ₹2500 is a good starting weekly budget.">
+            <input type="number" min={1500} step={100} className={input()} value={profile.weekly_budget || ""} onChange={(e) => update({ weekly_budget: cleanNumber(e.target.value) })} />
+            {errors.weekly_budget && <ErrorText>{errors.weekly_budget}</ErrorText>}
+          </Field>
+          <Field label="Dietary preference">
+            <select className={input()} value={profile.dietary_preference ?? "Vegetarian"} onChange={(e) => update({ dietary_preference: e.target.value })}>
+              {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
+            </select>
+            {errors.dietary_preference && <ErrorText>{errors.dietary_preference}</ErrorText>}
+          </Field>
+          <Field label="Telegram chat ID">
+            <input className={input()} value={profile.telegram ?? ""} onChange={(e) => update({ telegram: e.target.value })} placeholder="123456789" />
+          </Field>
+          <Field label="Allergies">
+            <input className={input()} value={(profile.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: splitList(e.target.value) })} placeholder="peanuts, shellfish" />
+          </Field>
+          <Field label="Preferences">
+            <input className={input()} value={(profile.preferences ?? []).join(", ")} onChange={(e) => update({ preferences: splitList(e.target.value) })} placeholder="spicy, home food" />
+          </Field>
+        </div>
+      </section>}
+
+      {isEditing && <section className="rounded-2xl border border-border bg-surface shadow-soft p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Family members</h2>
+            <p className="text-xs text-text-light mt-0.5">Edit everyone included in meal planning.</p>
+          </div>
+          <button onClick={addFamily} className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium hover:bg-muted transition">
+            <Plus className="size-4" /> Add family member
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {family.length === 0 && <div className="text-sm text-text-light rounded-xl border border-dashed border-border p-6 text-center">No family members yet.</div>}
+          {family.map((member, index) => (
+            <div key={index} className="rounded-xl border border-border p-4">
+              <div className="flex flex-col gap-4">
+                <div className="grid sm:grid-cols-2 gap-3 flex-1">
+                  <Field label="Name">
+                    <input className={input()} value={member.name} onChange={(e) => patchFamily(index, { name: e.target.value })} />
+                    {familyErrors[index] && <ErrorText>{familyErrors[index]}</ErrorText>}
+                  </Field>
+                  <Field label="Dietary preference">
+                    <select className={input()} value={member.diet ?? "Vegetarian"} onChange={(e) => patchFamily(index, { diet: e.target.value })}>
+                      {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Allergies">
+                    <input className={input()} value={(member.allergies ?? []).join(", ")} onChange={(e) => patchFamily(index, { allergies: splitList(e.target.value) })} />
+                  </Field>
+                  <Field label="Preferences">
+                    <input className={input()} value={(member.preferences ?? []).join(", ")} onChange={(e) => patchFamily(index, { preferences: splitList(e.target.value) })} />
+                  </Field>
+                  <Field label="Telegram chat ID">
+                    <input className={input()} value={member.telegram ?? ""} onChange={(e) => patchFamily(index, { telegram: e.target.value })} />
+                  </Field>
+                </div>
+                <button onClick={() => removeFamily(index)} className="self-start inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition">
+                  <Trash2 className="size-3.5" /> Delete family member
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>}
     </div>
   );
 }
 
-function Stat({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function splitList(value: string) {
+  return value.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function input() {
+  return "w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm placeholder:text-text-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition";
+}
+
+function isValidBudget(value: unknown) {
+  const budget = Number(value || 0);
+  return budget >= 1500;
+}
+
+function validateProfile(profile: OnboardPayload) {
+  const errors: Record<string, string> = {};
+  if (!profile.name?.trim()) errors.name = "Full name is required.";
+  if (!profile.goal) errors.goal = "Goal is required.";
+  if (!profile.dietary_preference) errors.dietary_preference = "Dietary preference is required.";
+  if (!Number.isFinite(Number(profile.age)) || profile.age < 1 || profile.age > 120) errors.age = "Enter a valid age.";
+  if (!Number.isFinite(Number(profile.weight)) || profile.weight < 20 || profile.weight > 300) errors.weight = "Enter a valid weight.";
+  if (!Number.isFinite(Number(profile.height)) || profile.height < 80 || profile.height > 250) errors.height = "Enter a valid height.";
+  if (!isValidBudget(profile.weekly_budget)) errors.weekly_budget = "Budget is too low. Please enter at least ₹1500.";
+  return errors;
+}
+
+function validateFamily(family: FamilyMember[]) {
+  const errors: Record<number, string> = {};
+  family.forEach((member, index) => {
+    if (!member.name?.trim()) errors[index] = "Family member name is required. Delete this row if you do not want to add them.";
+    if (!member.diet) errors[index] = "Dietary preference is required.";
+  });
+  return errors;
+}
+
+function cleanNumber(value: string) {
+  const cleaned = value.replace(/^0+(?=\d)/, "");
+  return cleaned === "" ? 0 : Number(cleaned);
+}
+
+function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 shadow-soft">
-      <div className="flex items-center gap-2 text-[11px] text-text-light font-medium uppercase tracking-wider">
+    <label className="block">
+      <div className="text-xs font-medium text-text-secondary mb-1.5">{label}</div>
+      {children}
+      {hint && <div className="text-[11px] text-text-light mt-1">{hint}</div>}
+    </label>
+  );
+}
+
+function ErrorText({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] text-destructive mt-1">{children}</div>;
+}
+
+function Detail({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
+  return (
+    <div className={compact ? "" : "rounded-xl border border-border bg-background p-4"}>
+      <div className="text-[11px] text-text-light font-medium uppercase tracking-wider">{label}</div>
+      <div className="mt-1 text-sm text-text-primary capitalize">{value}</div>
+    </div>
+  );
+}
+
+function Stat({ icon: Icon, label, value, tone = "default" }: { icon: any; label: string; value: string; tone?: "default" | "error" }) {
+  return (
+    <div className={[
+      "rounded-xl border bg-surface p-4 shadow-soft",
+      tone === "error" ? "border-destructive/30" : "border-border",
+    ].join(" ")}>
+      <div className={[
+        "flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider",
+        tone === "error" ? "text-destructive" : "text-text-light",
+      ].join(" ")}>
         <Icon className="size-3.5" /> {label}
       </div>
-      <div className="mt-1.5 text-xl font-semibold">{value}</div>
+      <div className={"mt-1.5 text-xl font-semibold " + (tone === "error" ? "text-destructive" : "")}>{value}</div>
     </div>
   );
 }

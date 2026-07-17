@@ -76,6 +76,52 @@ def get_user(user_id):
         return {}
 
 
+def get_user_by_telegram_id(telegram_id):
+    try:
+        result = (
+            supabase.table("users")
+            .select("*")
+            .eq("telegram_id", str(telegram_id))
+            .single()
+            .execute()
+        )
+        return result.data or {}
+    except Exception as exc:
+        print(f"⚠️ Error fetching user with Telegram ID {telegram_id}: {exc}")
+        return {}
+
+
+def update_user(user_id, updates):
+    allowed = {
+        "name",
+        "age",
+        "weight_kg",
+        "height_cm",
+        "goal",
+        "telegram_id",
+        "budget_weekly",
+        "dietary_type",
+        "dietary_preferences",
+        "allergies",
+        "preferences",
+    }
+    payload = {key: value for key, value in (updates or {}).items() if key in allowed}
+    if not payload:
+        return get_user(user_id)
+    try:
+        result = (
+            supabase.table("users")
+            .update(payload)
+            .eq("id", user_id)
+            .select("*")
+            .execute()
+        )
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error updating user {user_id}: {exc}")
+        return {}
+
+
 def add_family_member(user_id, name, age, dietary_type, allergies, preferences, telegram=""):
     payload = {
         "user_id": user_id,
@@ -227,7 +273,7 @@ def get_latest_plan(user_id):
             supabase.table("meal_plans")
             .select("*, day_meals(*)")
             .eq("user_id", user_id)
-            .order("week_start", desc=True)
+            .order("id", desc=True)
             .limit(1)
             .execute()
         )
@@ -264,7 +310,7 @@ def get_user_history(user_id):
             supabase.table("meal_plans")
             .select("*, day_meals(*)")
             .eq("user_id", user_id)
-            .order("week_start", desc=True)
+            .order("id", desc=True)
             .execute()
         )
         return result.data or []

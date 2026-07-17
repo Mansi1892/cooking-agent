@@ -1,6 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { LogOut, Save } from "lucide-react";
+import { Bell, LogOut, Send, ShieldCheck, UserCog } from "lucide-react";
+import { api } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
 
@@ -11,72 +12,95 @@ export const Route = createFileRoute("/settings")({
 function Settings() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<any>({});
+  const [testingTelegram, setTestingTelegram] = useState(false);
+  const userId = storage.getUserId();
+  const authUser = storage.getAuthUser<any>();
+  const telegram = profile.telegram || storage.getTelegram() || "";
 
   useEffect(() => {
-    setProfile(storage.getProfile() || { name: storage.getUserName() || "", goal: "maintenance", weekly_budget: 80, telegram: storage.getTelegram() || "" });
+    setProfile(storage.getProfile() || {});
   }, []);
 
-  function save() {
-    storage.setProfile(profile);
-    if (profile.name) storage.setUserName(profile.name);
-    if (profile.goal) storage.setGoal(profile.goal);
-    if (profile.telegram) storage.setTelegram(profile.telegram);
-    toast.success("Settings saved");
+  async function testTelegram() {
+    if (!userId) {
+      toast.error("Create profile first");
+      return;
+    }
+    if (!telegram) {
+      toast.error("Telegram chat ID missing", { description: "Add it from Profile, then test again." });
+      return;
+    }
+    setTestingTelegram(true);
+    try {
+      if (profile?.name) {
+        await api.updateProfile(userId, { ...profile, telegram });
+      }
+      await api.testTelegram(userId);
+      toast.success("Telegram is working", { description: "A test message was sent to your chat." });
+    } catch (error) {
+      toast.error("Telegram is not working", { description: error instanceof Error ? error.message : "Please check bot token and chat ID." });
+    } finally {
+      setTestingTelegram(false);
+    }
   }
 
-  function reset() {
-    storage.clearAll();
-    toast.message("Profile cleared");
-    navigate({ to: "/onboarding" });
+  function logout() {
+    storage.logout();
+    toast.message("Logged out");
+    navigate({ to: "/login" });
   }
 
   return (
-    <div className="space-y-8 animate-fade-up max-w-2xl">
+    <div className="space-y-6 animate-fade-up max-w-3xl">
       <header>
         <div className="text-[11px] uppercase tracking-wider text-text-light font-medium">Settings</div>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Account</h1>
-        <p className="mt-1 text-sm text-text-secondary">Update your profile and preferences.</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Account Settings</h1>
+        <p className="mt-1 text-sm text-text-secondary">Manage sign-in, notifications, and app actions.</p>
       </header>
 
-      <section className="rounded-2xl border border-border bg-surface shadow-soft p-6 space-y-4">
-        <Field label="Name">
-          <input className={inp} value={profile.name || ""} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
-        </Field>
-        <Field label="Goal">
-          <select className={inp} value={profile.goal || "maintenance"} onChange={(e) => setProfile({ ...profile, goal: e.target.value })}>
-            <option value="weight_loss">Weight loss</option>
-            <option value="muscle_gain">Muscle gain</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
-        </Field>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Weekly budget (USD)">
-            <input type="number" className={inp} value={profile.weekly_budget || 0} onChange={(e) => setProfile({ ...profile, weekly_budget: Number(e.target.value) })} />
-          </Field>
-          <Field label="Telegram">
-            <input className={inp} value={profile.telegram || ""} onChange={(e) => setProfile({ ...profile, telegram: e.target.value })} placeholder="@username" />
-          </Field>
-        </div>
-        <div className="pt-2 flex items-center justify-between">
-          <button onClick={save} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition">
-            <Save className="size-4" /> Save changes
-          </button>
-          <button onClick={reset} className="inline-flex items-center gap-2 text-sm text-destructive hover:underline">
-            <LogOut className="size-4" /> Reset profile
+      <section className="rounded-xl border border-border bg-surface shadow-soft p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="size-10 rounded-lg bg-primary-light grid place-items-center text-primary">
+              <ShieldCheck className="size-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Signed in</h2>
+              <p className="text-sm text-text-secondary mt-1">{authUser?.email || authUser?.name || "Local account"}</p>
+              <p className="text-xs text-text-light mt-1">Profile ID: {userId || "Not created yet"}</p>
+            </div>
+          </div>
+          <button onClick={logout} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-text-secondary hover:text-destructive hover:border-destructive/30 transition">
+            <LogOut className="size-4" /> Logout
           </button>
         </div>
       </section>
+
+      <section className="rounded-xl border border-border bg-surface shadow-soft p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="size-10 rounded-lg bg-primary-light grid place-items-center text-primary">
+            <Bell className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">Telegram Notifications</h2>
+            <p className="text-sm text-text-secondary mt-1">Meal plans are sent to this chat after generation.</p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-background px-3.5 py-3">
+          <div className="text-xs font-medium text-text-secondary">Current chat ID</div>
+          <div className="mt-1 text-sm font-medium">{telegram || "Not added"}</div>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button onClick={testTelegram} disabled={testingTelegram || !telegram} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            <Send className="size-4" /> {testingTelegram ? "Testing..." : "Send test message"}
+          </button>
+          <Link to="/profile" className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition">
+            <UserCog className="size-4" /> Edit profile
+          </Link>
+        </div>
+      </section>
     </div>
-  );
-}
-
-const inp = "w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition";
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <div className="text-xs font-medium text-text-secondary mb-1.5">{label}</div>
-      {children}
-    </label>
   );
 }

@@ -54,6 +54,8 @@ DIETARY_TYPES = [
     "vegetarian",
     "vegan",
     "non-vegetarian",
+    "pescatarian",
+    "keto",
     "eggetarian",
     "diabetic-friendly",
     "gluten-free"

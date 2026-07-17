@@ -86,37 +86,245 @@ export type GroceryGroup = {
   items: Array<{ name: string; quantity: string; checked?: boolean }>;
 };
 
+export type Recipe = {
+  title: string;
+  servings: number;
+  prep_time?: string;
+  cook_time?: string;
+  ingredients: string[];
+  steps: string[];
+  nutrition_note?: string;
+  source_urls?: string[];
+};
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
   onboard: (data: OnboardPayload) => request<{ user_id: string }>("/onboard", { method: "POST", body: JSON.stringify(data) }),
-  generatePlan: (userId: string) => request<MealPlan>(`/plan/generate/${userId}`, { method: "POST" }),
+  updateProfile: (userId: string, data: OnboardPayload) => request<{ profile: any }>(`/profile/${userId}`, { method: "PUT", body: JSON.stringify(data) }),
+  generatePlan: (userId: string) => request<MealPlan | { plan: MealPlan; telegram_sent?: boolean; telegram_queued?: boolean; telegram_error?: string }>(`/plan/generate/${userId}`, { method: "POST" }),
+  getLatestPlan: (userId: string) => request<{ plan: MealPlan }>(`/plan/latest/${userId}`),
+  getStreak: (userId: string) => request<{ streak: number }>(`/streak/${userId}`),
+  generateRecipe: (payload: { user_id: string; meal_name: string; meal_type?: string }) => request<{ recipe: Recipe }>("/recipe/generate", { method: "POST", body: JSON.stringify(payload) }),
+  testTelegram: (userId: string) => request<{ sent: boolean }>(`/telegram/test/${userId}`, { method: "POST" }),
   getPlan: (planId: string) => request<MealPlan>(`/plan/${planId}`),
   getHistory: (userId: string) => request<HistoryItem[]>(`/history/${userId}`),
   getGrocery: (planId: string) => request<GroceryGroup[]>(`/grocery/${planId}`),
   feedback: (payload: any) => request<{ ok: boolean }>("/feedback", { method: "POST", body: JSON.stringify(payload) }),
 };
 
+function normalizeDiet(profile?: Partial<OnboardPayload> | null) {
+  const raw = String(profile?.dietary_preference || "").toLowerCase();
+  if (raw.includes("normal") || raw.includes("regular") || raw.includes("no preference")) return "normal";
+  if (raw.includes("vegan")) return "vegan";
+  if (raw.includes("non")) return "non-vegetarian";
+  if (raw.includes("pesc")) return "pescatarian";
+  if (raw.includes("keto")) return "keto";
+  if (raw.includes("eggetarian") || raw.includes("eggitarian") || raw.includes("ovo")) return "eggetarian";
+  if (raw.includes("vegetarian") || raw === "veg") return "vegetarian";
+  return "normal";
+}
+
+function demoMeals(profile?: Partial<OnboardPayload> | null) {
+  const diet = normalizeDiet(profile);
+  if (diet === "vegan") {
+    return [
+      { type: "Breakfast", name: "Besan cheela, mint chutney, sprouts", calories: 360, protein: 22, prep_time: 15 },
+      { type: "Lunch", name: "Chole bowl, brown rice, cucumber salad", calories: 620, protein: 26, prep_time: 25 },
+      { type: "Dinner", name: "Tofu tikka, roasted vegetables, dal soup", calories: 690, protein: 38, prep_time: 25 },
+      { type: "Snack", name: "Almonds & apple", calories: 230, protein: 8, prep_time: 1 },
+    ];
+  }
+  if (diet === "pescatarian") {
+    return [
+      { type: "Breakfast", name: "Idli, sambar, coconut chutney", calories: 380, protein: 18, prep_time: 15 },
+      { type: "Lunch", name: "Fish curry, brown rice, cucumber salad", calories: 650, protein: 42, prep_time: 25 },
+      { type: "Dinner", name: "Paneer tikka, roasted vegetables, dal soup", calories: 700, protein: 40, prep_time: 25 },
+      { type: "Snack", name: "Greek yogurt & berries", calories: 220, protein: 18, prep_time: 2 },
+    ];
+  }
+  if (diet === "eggetarian") {
+    return [
+      { type: "Breakfast", name: "Egg bhurji, spinach, whole wheat toast", calories: 390, protein: 26, prep_time: 12 },
+      { type: "Lunch", name: "Rajma bowl, brown rice, cucumber salad", calories: 620, protein: 30, prep_time: 25 },
+      { type: "Dinner", name: "Paneer tikka, roasted vegetables, dal soup", calories: 720, protein: 42, prep_time: 25 },
+      { type: "Snack", name: "Boiled eggs & fruit", calories: 220, protein: 16, prep_time: 8 },
+    ];
+  }
+  if (diet === "keto") {
+    return [
+      { type: "Breakfast", name: "Paneer bhurji, sauteed spinach", calories: 430, protein: 32, prep_time: 15 },
+      { type: "Lunch", name: "Chicken tikka salad, avocado, cucumber", calories: 650, protein: 52, prep_time: 20 },
+      { type: "Dinner", name: "Palak paneer, cauliflower rice", calories: 700, protein: 44, prep_time: 25 },
+      { type: "Snack", name: "Walnuts & cheese cubes", calories: 260, protein: 12, prep_time: 1 },
+    ];
+  }
+  if (diet === "non-vegetarian") {
+    return [
+      { type: "Breakfast", name: "Egg bhurji, vegetable saute", calories: 400, protein: 28, prep_time: 12 },
+      { type: "Lunch", name: "Grilled chicken bowl, quinoa, avocado", calories: 650, protein: 52, prep_time: 20 },
+      { type: "Dinner", name: "Fish curry, roasted vegetables", calories: 700, protein: 48, prep_time: 25 },
+      { type: "Snack", name: "Greek yogurt & berries", calories: 220, protein: 18, prep_time: 2 },
+    ];
+  }
+  if (diet === "normal") {
+    return [
+      { type: "Breakfast", name: "Vegetable omelette, toast, fruit", calories: 420, protein: 28, prep_time: 12 },
+      { type: "Lunch", name: "Chicken dal bowl, rice, cucumber salad", calories: 660, protein: 48, prep_time: 25 },
+      { type: "Dinner", name: "Paneer tikka, mixed vegetables, roti", calories: 690, protein: 38, prep_time: 25 },
+      { type: "Snack", name: "Greek yogurt & berries", calories: 220, protein: 18, prep_time: 2 },
+    ];
+  }
+  return [
+    { type: "Breakfast", name: "Moong dal cheela, mint chutney, curd", calories: 380, protein: 24, prep_time: 15 },
+    { type: "Lunch", name: "Rajma bowl, brown rice, cucumber salad", calories: 620, protein: 30, prep_time: 25 },
+    { type: "Dinner", name: "Paneer tikka, roasted vegetables, dal soup", calories: 720, protein: 42, prep_time: 25 },
+    { type: "Snack", name: "Almonds & apple", calories: 230, protein: 8, prep_time: 1 },
+  ];
+}
+
+function demoMealsForDay(profile: Partial<OnboardPayload> | null | undefined, dayIndex: number) {
+  const diet = normalizeDiet(profile);
+  const vegetarianWeek = [
+    ["Moong dal cheela, mint chutney, curd", "Rajma bowl, brown rice, cucumber salad", "Paneer tikka, roasted vegetables, dal soup", "Almonds & apple"],
+    ["Vegetable poha with peanuts", "Chole, jeera rice, kachumber salad", "Palak paneer, phulka, carrot salad", "Greek yogurt & berries"],
+    ["Idli, sambar, coconut chutney", "Masoor dal, millet roti, bhindi", "Tofu matar curry, quinoa pulao", "Roasted makhana"],
+    ["Oats upma with vegetables", "Kadhi, brown rice, cucumber raita", "Soya chunk curry, chapati, salad", "Fruit chaat"],
+    ["Paneer bhurji toast", "Dal tadka, rice, cabbage sabzi", "Vegetable khichdi, curd, pickle", "Peanut chaat"],
+    ["Besan dhokla, coriander chutney", "Matar paneer, phulka, salad", "Mixed dal dosa, sambar", "Buttermilk & walnuts"],
+    ["Sprouts chilla, tomato chutney", "Vegetable biryani, raita, salad", "Lauki kofta, chapati, dal soup", "Banana & peanut butter"],
+  ];
+  const veganWeek = [
+    ["Besan cheela, mint chutney, sprouts", "Chole bowl, brown rice, cucumber salad", "Tofu tikka, roasted vegetables, dal soup", "Almonds & apple"],
+    ["Vegetable poha with peanuts", "Rajma, millet rice, salad", "Soy chunk curry, phulka, greens", "Roasted chana"],
+    ["Ragi dosa, sambar", "Masoor dal, quinoa, bhindi", "Tofu palak, cauliflower sabzi", "Fruit & peanut chaat"],
+    ["Oats upma with vegetables", "Kala chana bowl, brown rice", "Mixed veg curry, dal soup", "Coconut yogurt"],
+    ["Sprouts salad toast", "Moong dal khichdi, salad", "Tofu bhurji, millet roti", "Makhana"],
+    ["Dhokla, green chutney", "Chickpea pulao, cucumber salad", "Sambar, idli, stir-fried beans", "Nuts & dates"],
+    ["Besan oats pancakes", "Lobia curry, rice, salad", "Vegetable stew, appam", "Apple & almonds"],
+  ];
+  const eggetarianWeek = [
+    ["Egg bhurji, spinach, whole wheat toast", "Rajma bowl, brown rice, cucumber salad", "Paneer tikka, roasted vegetables, dal soup", "Boiled eggs & fruit"],
+    ["Masala omelette, toast", "Chole, rice, salad", "Palak paneer, phulka", "Greek yogurt"],
+    ["Idli, sambar", "Egg curry, brown rice, salad", "Tofu stir fry, quinoa", "Roasted makhana"],
+    ["Oats veggie omelette", "Dal tadka, chapati, sabzi", "Paneer bhurji, salad", "Boiled egg chaat"],
+    ["Egg dosa, chutney", "Kadhi rice, cucumber salad", "Soya curry, millet roti", "Fruit bowl"],
+    ["Scrambled eggs, sauteed vegetables", "Matar paneer, phulka", "Vegetable khichdi, curd", "Nuts & apple"],
+    ["Egg paratha, curd", "Chana masala, rice", "Palak tofu, chapati", "Protein smoothie"],
+  ];
+  const nonVegWeek = [
+    ["Egg bhurji, vegetable saute", "Grilled chicken bowl, quinoa, avocado", "Fish curry, roasted vegetables", "Greek yogurt & berries"],
+    ["Omelette, toast, fruit", "Chicken tikka wrap, salad", "Dal, rice, grilled prawns", "Boiled eggs"],
+    ["Idli, sambar", "Fish curry, brown rice, salad", "Chicken saag, phulka", "Peanut chaat"],
+    ["Oats upma", "Chicken dal bowl, cucumber salad", "Paneer tikka, vegetables", "Yogurt & nuts"],
+    ["Masala eggs, spinach", "Mutton curry, rice, salad", "Fish tikka, dal soup", "Fruit bowl"],
+    ["Dosa, egg podi", "Chicken biryani, raita", "Tofu vegetable stir fry", "Roasted chana"],
+    ["Vegetable omelette", "Prawn curry, rice, salad", "Chicken soup, millet roti", "Greek yogurt"],
+  ];
+  const pescatarianWeek = [
+    ["Idli, sambar, coconut chutney", "Fish curry, brown rice, cucumber salad", "Paneer tikka, roasted vegetables, dal soup", "Greek yogurt & berries"],
+    ["Poha with peanuts", "Prawn pulao, salad", "Palak paneer, phulka", "Roasted makhana"],
+    ["Oats upma", "Grilled fish, quinoa, kachumber", "Dal tadka, rice, sabzi", "Fruit & nuts"],
+    ["Besan cheela, curd", "Fish tikka wrap, salad", "Tofu curry, millet roti", "Yogurt"],
+    ["Dosa, sambar", "Rajma rice, salad", "Prawn curry, cauliflower sabzi", "Apple & almonds"],
+    ["Paneer toast", "Fish biryani, raita", "Vegetable khichdi, dal soup", "Peanut chaat"],
+    ["Sprouts chilla", "Fish stew, appam", "Soya curry, chapati", "Berries & yogurt"],
+  ];
+  const ketoWeek = [
+    ["Paneer bhurji, sauteed spinach", "Chicken tikka salad, avocado, cucumber", "Palak paneer, cauliflower rice", "Walnuts & cheese cubes"],
+    ["Masala omelette, mushrooms", "Paneer tikka salad, avocado", "Fish curry, sauteed greens", "Greek yogurt"],
+    ["Tofu scramble, spinach", "Chicken lettuce bowls", "Egg curry, cauliflower rice", "Almonds"],
+    ["Cheese omelette", "Paneer makhani, cucumber salad", "Grilled chicken, broccoli", "Coconut yogurt"],
+    ["Egg bhurji, avocado", "Fish tikka salad", "Tofu palak, sauteed beans", "Cheese cubes"],
+    ["Paneer pancakes", "Chicken soup, greens", "Mushroom paneer curry", "Walnuts"],
+    ["Spinach omelette", "Prawn salad, avocado", "Palak chicken, cauliflower mash", "Almond butter celery"],
+  ];
+  const mealsByDiet = diet === "vegan" ? veganWeek :
+    diet === "eggetarian" ? eggetarianWeek :
+    diet === "non-vegetarian" || diet === "normal" ? nonVegWeek :
+    diet === "pescatarian" ? pescatarianWeek :
+    diet === "keto" ? ketoWeek :
+    vegetarianWeek;
+  const names = mealsByDiet[dayIndex % mealsByDiet.length];
+  const base = demoMeals(profile);
+  return base.map((meal, index) => ({ ...meal, name: names[index] || meal.name }));
+}
+
+function demoGrocery(profile?: Partial<OnboardPayload> | null): GroceryGroup[] {
+  const diet = normalizeDiet(profile);
+  const proteins: GroceryGroup["items"] =
+    diet === "vegan" ? [
+      { name: "Soya chunks", quantity: "500g" }, { name: "Chickpeas", quantity: "500g" },
+      { name: "Moong dal", quantity: "500g" }, { name: "Tofu", quantity: "400g" },
+    ] :
+    diet === "pescatarian" ? [
+      { name: "Fish fillets", quantity: "500g" }, { name: "Paneer", quantity: "300g" },
+      { name: "Curd", quantity: "1 kg" }, { name: "Dal assorted", quantity: "700g" },
+    ] :
+    diet === "keto" ? [
+      { name: "Paneer", quantity: "500g" }, { name: "Eggs", quantity: "1 dozen" },
+      { name: "Chicken breast", quantity: "600g" }, { name: "Peanuts", quantity: "500g" },
+    ] :
+    diet === "eggetarian" ? [
+      { name: "Eggs", quantity: "1 dozen" }, { name: "Paneer", quantity: "400g" },
+      { name: "Moong dal", quantity: "500g" }, { name: "Rajma", quantity: "500g" },
+    ] :
+    diet === "non-vegetarian" || diet === "normal" ? [
+      { name: "Chicken breast", quantity: "700g" }, { name: "Eggs", quantity: "1 dozen" },
+      { name: "Dal assorted", quantity: "700g" }, { name: "Curd", quantity: "1 kg" },
+    ] : [
+      { name: "Paneer", quantity: "400g" }, { name: "Soya chunks", quantity: "500g" },
+      { name: "Rajma", quantity: "500g" }, { name: "Moong dal", quantity: "500g" },
+    ];
+  const grains = diet === "keto" ? [
+    { name: "Cauliflower", quantity: "1 kg" }, { name: "Cabbage", quantity: "1 kg" },
+  ] : [
+    { name: "Rice", quantity: "2 kg" }, { name: "Atta", quantity: "2 kg" },
+    { name: "Rolled oats", quantity: "500g" },
+  ];
+  const dairy = diet === "vegan" ? [
+    { name: "Peanuts", quantity: "500g" }, { name: "Coconut milk", quantity: "400ml" },
+  ] : [
+    { name: "Milk", quantity: "2 L" }, { name: "Curd", quantity: "1 kg" },
+  ];
+
+  return [
+    { category: "Vegetables", items: [
+      { name: "Spinach", quantity: "300g" }, { name: "Tomatoes", quantity: "1 kg" },
+      { name: "Onions", quantity: "1 kg" }, { name: "Seasonal vegetables", quantity: "2 kg" }] },
+    { category: "Proteins", items: proteins },
+    { category: diet === "keto" ? "Low-carb staples" : "Grains", items: grains },
+    { category: "Fruits", items: [
+      { name: "Apples", quantity: "6" }, { name: "Bananas", quantity: "12" }, { name: "Guava", quantity: "1 kg" }] },
+    { category: diet === "vegan" ? "Dairy alternatives" : "Dairy", items: dairy },
+    { category: "Spices & condiments", items: [
+      { name: "Turmeric powder", quantity: "100g" },
+      { name: "Cumin seeds", quantity: "100g" },
+      { name: "Coriander powder", quantity: "100g" },
+      { name: "Garam masala", quantity: "100g" },
+      { name: "Mustard oil", quantity: "1 L" },
+    ] },
+  ];
+}
+
 // Mock data used when API is unreachable so the UI is always portfolio-worthy
 export const mock = {
-  plan: (): MealPlan => ({
-    id: "mock-plan-1",
-    user_id: "mock-user",
-    status: "ready",
-    created_at: new Date().toISOString(),
-    week_summary: { healthy_score: 92, avg_calories: 2050, avg_protein: 138, total_budget: 84 },
-    days: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day, i) => ({
-      day,
-      calories: 1900 + ((i * 73) % 350),
-      protein: 120 + ((i * 11) % 35),
-      status: i < 2 ? "completed" : "planned",
-      meals: [
-        { type: "Breakfast", name: "Greek yogurt parfait, berries, granola", calories: 380, protein: 24, prep_time: 5 },
-        { type: "Lunch", name: "Grilled chicken bowl, quinoa, avocado", calories: 620, protein: 48, prep_time: 20 },
-        { type: "Dinner", name: "Pan-seared salmon, roasted veg", calories: 720, protein: 52, prep_time: 25 },
-        { type: "Snack", name: "Almonds & apple", calories: 230, protein: 8, prep_time: 1 },
-      ],
-    })),
-  }),
+  plan: (profile?: Partial<OnboardPayload> | null): MealPlan => {
+    const budget = Number(profile?.weekly_budget || 0);
+    return {
+      id: "mock-plan-1",
+      user_id: "mock-user",
+      status: "ready",
+      created_at: new Date().toISOString(),
+      week_summary: { healthy_score: 92, avg_calories: 2050, avg_protein: 138, total_budget: budget },
+      days: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day, i) => ({
+        day,
+        calories: 1900 + ((i * 73) % 350),
+        protein: 120 + ((i * 11) % 35),
+        status: i < 2 ? "completed" : "planned",
+        meals: demoMealsForDay(profile, i),
+      })),
+    };
+  },
   history: (): HistoryItem[] => Array.from({ length: 6 }).map((_, i) => ({
     plan_id: `plan-${i+1}`,
     created_at: new Date(Date.now() - i * 7 * 86400000).toISOString(),
@@ -125,22 +333,7 @@ export const mock = {
     avg_calories: 1900 + (i * 35),
     avg_protein: 125 + (i * 4),
   })),
-  grocery: (): GroceryGroup[] => [
-    { category: "Vegetables", items: [
-      { name: "Spinach", quantity: "300g" }, { name: "Broccoli", quantity: "2 heads" },
-      { name: "Avocado", quantity: "4" }, { name: "Bell peppers", quantity: "5" }] },
-    { category: "Proteins", items: [
-      { name: "Chicken breast", quantity: "1.2 kg" }, { name: "Salmon fillet", quantity: "600g" },
-      { name: "Eggs", quantity: "1 dozen" }, { name: "Greek yogurt", quantity: "1 kg" }] },
-    { category: "Grains", items: [
-      { name: "Quinoa", quantity: "500g" }, { name: "Rolled oats", quantity: "800g" }] },
-    { category: "Fruits", items: [
-      { name: "Berries mix", quantity: "500g" }, { name: "Apples", quantity: "8" }, { name: "Bananas", quantity: "10" }] },
-    { category: "Dairy", items: [
-      { name: "Almond milk", quantity: "2 L" }, { name: "Feta cheese", quantity: "200g" }] },
-    { category: "Spices", items: [
-      { name: "Black pepper", quantity: "1 jar" }, { name: "Smoked paprika", quantity: "1 jar" }] },
-  ],
+  grocery: (profile?: Partial<OnboardPayload> | null): GroceryGroup[] => demoGrocery(profile),
 };
 
 export async function safe<T>(p: Promise<T>, fallback: T): Promise<T> {
