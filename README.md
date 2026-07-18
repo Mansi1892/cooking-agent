@@ -17,10 +17,14 @@ The current login is a local/demo login stored in browser localStorage. It gates
 - Onboarding for personal profile, family members, goals, budget, allergies, preferences, and Telegram chat ID
 - Goals: weight loss, muscle gain, maintenance
 - Dietary preferences: vegetarian, eggetarian, vegan, non-vegetarian, pescatarian, keto
-- AI-generated 7-day meal plans
+- AI-generated 7-day meal plans with backend summary validation for calories, protein, budget, and variety
 - Diet-aware plan generation prompts and diet-aware frontend fallback data
+- Approved-only recipe buttons in the browser; recipes are generated on demand from online recipe context and AI
+- Auto-refresh on the Meal Plans page while a plan is pending so Telegram approval unlocks recipes without manual reload
+- Weekly plan streak calculated from saved Supabase meal plans
 - Grocery list and meal-plan history views
-- Telegram bot support for sending plans for approval and collecting feedback
+- Telegram bot support for sending plans for approval, collecting rejection feedback, and regenerating structured plans
+- Settings page for account status, Telegram test message, logout, and local profile reset
 - Supabase-backed storage for users, family members, meal plans, day meals, grocery lists, and feedback
 
 ## Architecture
@@ -123,7 +127,9 @@ http://127.0.0.1:8080/
 4. If no backend `user_id` exists yet, user is sent to `/onboarding`.
 5. Onboarding saves the user/family profile through the backend.
 6. Meal plans are generated and saved using the backend `user_id`.
-7. Grocery/history views read the saved plan data or use diet-aware demo fallback data if the backend is unreachable.
+7. Pending plans are sent to Telegram if a numeric chat ID is saved.
+8. Approving a plan in Telegram updates Supabase; the browser auto-refreshes and unlocks recipe buttons.
+9. Grocery/history views read the saved plan data or use diet-aware demo fallback data if the backend is unreachable.
 
 ## Telegram Flow
 
@@ -141,9 +147,15 @@ venv/bin/python telegram_bot.py
 4. Open your bot in Telegram and send `/start`.
 5. The bot replies with your numeric Telegram chat ID.
 6. Paste that number into the app's `Telegram chat ID` field.
-7. When a plan is generated, the backend sends it to Telegram for approval if a chat ID is saved.
+7. When a plan is generated, the backend queues a Telegram send if a chat ID is saved.
+8. Approve keeps the plan visible in Telegram and removes the buttons.
+9. Reject asks for text feedback, regenerates a new structured plan, saves it, and sends the revised plan to Telegram.
 
 Do not use `@username`; Telegram sending needs the numeric chat ID.
+
+## Recipes
+
+Recipe generation is intentionally browser-only. Meal cards show a `Recipe` button after a plan has `approved` status. Clicking it calls the backend, searches online recipe context with Tavily, and asks AI for ingredients, steps, prep/cook time, servings, and diet/allergy-aware guidance. Recipes are not sent to Telegram.
 
 ## API Endpoints
 
@@ -153,6 +165,14 @@ Do not use `@username`; Telegram sending needs the numeric chat ID.
 - `POST /api/onboard`
 - `POST /plan/generate/{user_id}`
 - `POST /api/plan/generate/{user_id}`
+- `GET /plan/latest/{user_id}`
+- `GET /api/plan/latest/{user_id}`
+- `GET /streak/{user_id}`
+- `GET /api/streak/{user_id}`
+- `POST /recipe/generate`
+- `POST /api/recipe/generate`
+- `POST /telegram/test/{user_id}`
+- `POST /api/telegram/test/{user_id}`
 - `GET /plan/{plan_id}`
 - `GET /api/plan/{plan_id}`
 - `GET /grocery/{plan_id}`
@@ -181,6 +201,7 @@ npm run build
 
 - The frontend dev server should run on `8080`.
 - The backend should run on `8000`.
+- Run `telegram_bot.py` separately whenever you need Approve/Reject buttons to work; the API can send messages, but the bot process listens for callbacks.
 - If a vegetarian user sees chicken/fish/eggs, clear local storage or reset the profile and generate a new plan; old demo data may be cached in the browser.
 - Existing users with `telegram_id` saved as `@username` should be updated to the numeric Telegram chat ID.
 
@@ -191,3 +212,4 @@ npm run build
 - Add richer grocery persistence and grocery export
 - Add automated end-to-end tests
 - Add dedicated keto/pescatarian/eggetarian seed recipes for better local DB retrieval
+- Persist generated recipes if users need offline reuse

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Bell, LogOut, Send, ShieldCheck, UserCog } from "lucide-react";
+import { Bell, LogOut, RotateCcw, Send, ShieldCheck, UserCog } from "lucide-react";
 import { api } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
@@ -48,6 +48,12 @@ function Settings() {
     storage.logout();
     toast.message("Logged out");
     navigate({ to: "/login" });
+  }
+
+  function resetProfile() {
+    storage.resetProfile();
+    toast.message("Profile reset", { description: "Create a fresh profile to continue." });
+    navigate({ to: "/onboarding" });
   }
 
   return (
@@ -99,6 +105,23 @@ function Settings() {
           <Link to="/profile" className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition">
             <UserCog className="size-4" /> Edit profile
           </Link>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface shadow-soft p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="size-10 rounded-lg bg-destructive/10 grid place-items-center text-destructive">
+              <RotateCcw className="size-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Reset Local Profile</h2>
+              <p className="text-sm text-text-secondary mt-1">Clear this browser's profile, plan cache, streak, and saved user ID.</p>
+            </div>
+          </div>
+          <button onClick={resetProfile} className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/5 transition">
+            <RotateCcw className="size-4" /> Reset
+          </button>
         </div>
       </section>
     </div>
