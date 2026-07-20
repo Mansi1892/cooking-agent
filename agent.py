@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 import json
 from typing import Dict, List, Any, Tuple, Optional
 import os
-from datetime import date
+from datetime import date, timedelta
 from dotenv import load_dotenv
 from functools import lru_cache
 
@@ -18,6 +18,7 @@ from database import (
     save_day_meals,
     get_user,
     get_latest_plan,
+    get_user_history,
     update_plan_status,
 )
 from onboarding_utils import normalize_dietary_type, normalize_family_member
@@ -227,7 +228,8 @@ def generate_structured_plan(
     user_id: int,
     agent_result: str,
     goal: str,
-    feedback_text: str = ""
+    feedback_text: str = "",
+    avoid_meals: Optional[List[str]] = None,
 ) -> Dict:
     """Use OpenAI to convert agent text output into structured week plan."""
     try:
@@ -248,11 +250,14 @@ def generate_structured_plan(
         Allergies to avoid: {', '.join(user.get('allergies') or []) if user else 'None'}
         Food preferences: {', '.join(user.get('preferences') or []) if user else 'None'}
         User feedback to apply: {feedback_text or 'None'}
+        Meals to avoid repeating from recent weeks: {', '.join(avoid_meals or []) or 'None'}
 
         Generate a complete 7-day Indian meal plan in this EXACT JSON format.
         Every day must meet the user's target range:
         - total_calories must be between {targets['min_calories']} and {targets['max_calories']}
         - total_protein must be at least {targets['min_protein']}g
+        - Do not repeat the listed recent meals unless absolutely necessary for diet, allergy, or budget constraints.
+        - Make each day meaningfully different from the other days in this generated week.
         Return ONLY valid JSON, no explanation, no markdown:
 
         {{
@@ -506,7 +511,20 @@ def run_onboarding(
         return None, f"❌ Onboarding error: {exc}"
 
 
-def generate_meal_plan(user_id: int, feedback_text: str = "") -> Dict[str, Any]:
+def recent_meal_names(user_id: int, limit: int = 42) -> List[str]:
+    names: List[str] = []
+    for plan in get_user_history(user_id)[:4]:
+        for day in plan.get("day_meals") or []:
+            for key in ("breakfast", "lunch", "dinner"):
+                value = str(day.get(key) or "").strip()
+                if value and value not in names:
+                    names.append(value)
+                if len(names) >= limit:
+                    return names
+    return names
+
+
+def generate_meal_plan(user_id: int, feedback_text: str = "", week_start: Optional[str] = None) -> Dict[str, Any]:
     """Generate a 7-day personalized meal plan for a user and family."""
     try:
         user = get_user(user_id)
@@ -519,11 +537,14 @@ def generate_meal_plan(user_id: int, feedback_text: str = "") -> Dict[str, Any]:
         allergies = ", ".join(user.get("allergies") or []) or "None"
         preferences = ", ".join(user.get("preferences") or []) or "None"
         budget_weekly = parse_budget(user.get("budget_weekly"))
+        avoid_meals = recent_meal_names(user_id)
+        target_week = week_start or str(date.today() - timedelta(days=date.today().weekday()))
 
         agent_result = f"""
         Fast profile context for meal planning:
         User: {user.get('name')}
         Goal: {goal}
+        Target week starts: {target_week}
         Dietary type: {dietary_type}
         Budget: ₹{budget_weekly}
         Calories: {targets['min_calories']}-{targets['max_calories']} kcal/day
@@ -531,18 +552,19 @@ def generate_meal_plan(user_id: int, feedback_text: str = "") -> Dict[str, Any]:
         Allergies: {allergies}
         Preferences: {preferences}
         Feedback: {feedback_text or 'None'}
+        Recent meals to avoid repeating: {', '.join(avoid_meals) or 'None'}
 
         Use common Indian home-cooking meals and budget staples. Do not call tools.
         """
 
         # convert to structured JSON
-        structured_plan = generate_structured_plan(user_id, agent_result, goal, feedback_text)
+        structured_plan = generate_structured_plan(user_id, agent_result, goal, feedback_text, avoid_meals)
 
         # save to Supabase
         saved_plan = save_meal_plan(
             user_id=user_id,
             goal=goal,
-            week_start=str(date.today()),
+            week_start=target_week,
         )
 
         plan_id = saved_plan.get("id", 0) if saved_plan else 0

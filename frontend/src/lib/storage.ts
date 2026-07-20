@@ -20,8 +20,20 @@ function read(key: string): string | null {
 function write(key: string, value: string | null) {
   if (typeof window === "undefined") return;
   try {
+    const previous = window.localStorage.getItem(key);
+    if (previous === value) return;
     if (value == null) window.localStorage.removeItem(key);
     else window.localStorage.setItem(key, value);
+    window.dispatchEvent(new CustomEvent("mpa-storage-change", { detail: { key, value } }));
+  } catch {}
+}
+
+function clearAdminSession() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem("mpa_admin_user_id");
+    window.localStorage.removeItem("mpa_admin_password");
+    window.localStorage.removeItem("mpa_admin_ok");
   } catch {}
 }
 
@@ -42,7 +54,10 @@ export const storage = {
   },
   setAuthUser: (data: any) => write(KEYS.authUser, JSON.stringify(data)),
   isLoggedIn: () => !!read(KEYS.authUser),
-  logout: () => write(KEYS.authUser, null),
+  logout: () => {
+    Object.values(KEYS).forEach((k) => write(k, null));
+    clearAdminSession();
+  },
   getStreak: () => Number(read(KEYS.streak) || "0"),
   setStreak: (n: number) => write(KEYS.streak, String(n)),
   getProfile: <T = any>(): T | null => {
@@ -73,5 +88,8 @@ export const storage = {
       KEYS.role,
     ].forEach((k) => write(k, null));
   },
-  clearAll: () => Object.values(KEYS).forEach((k) => write(k, null)),
+  clearAll: () => {
+    Object.values(KEYS).forEach((k) => write(k, null));
+    clearAdminSession();
+  },
 };

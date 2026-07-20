@@ -8,13 +8,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const hideChrome = pathname.startsWith("/onboarding") || pathname.startsWith("/login");
-  const isPublic = pathname.startsWith("/login");
+  const isLogin = pathname.startsWith("/login");
+  const isOnboarding = pathname.startsWith("/onboarding");
+  const isPublic = isLogin;
 
   useEffect(() => {
     if (!isPublic && !storage.isLoggedIn()) {
       navigate({ to: "/login" });
+      return;
     }
-  }, [isPublic, navigate]);
+    if (!isLogin && !isOnboarding && storage.isLoggedIn() && !storage.getUserId()) {
+      navigate({ to: "/onboarding" });
+    }
+  }, [isLogin, isOnboarding, isPublic, navigate, pathname]);
 
   if (hideChrome) return <>{children}</>;
 

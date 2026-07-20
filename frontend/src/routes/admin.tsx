@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Coins, KeyRound, Loader2, LogOut, Plus, ShieldCheck, UserRound } from "lucide-react";
-import { api, type AdminUser } from "@/lib/api";
+import { KeyRound, Loader2, LogOut, Plus, ShieldCheck } from "lucide-react";
+import { api, type CreditRequest } from "@/lib/api";
+import { storage } from "@/lib/storage";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
@@ -9,19 +10,20 @@ export const Route = createFileRoute("/admin")({
 });
 
 function Admin() {
-  const [users, setUsers] = useState<AdminUser[]>([]);
+  const navigate = useNavigate();
+  const [requests, setRequests] = useState<CreditRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [granting, setGranting] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Record<string, number>>({});
-  const [adminUserId, setAdminUserId] = useState(() => localStorage.getItem("mpa_admin_user_id") || "");
-  const [adminPassword, setAdminPassword] = useState(() => localStorage.getItem("mpa_admin_password") || "");
-  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem("mpa_admin_ok") === "true");
+  const [adminUserId, setAdminUserId] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   async function load(nextAdminUserId = adminUserId, nextAdminPassword = adminPassword) {
     setLoading(true);
     try {
-      const result = await api.getAdminUsers(nextAdminUserId, nextAdminPassword);
-      setUsers(result.users);
+      const requestResult = await api.getCreditRequests(nextAdminUserId, nextAdminPassword);
+      setRequests(requestResult.requests);
     } catch (error) {
       toast.error("Admin page unavailable", { description: error instanceof Error ? error.message : "Please try again." });
     } finally {
@@ -30,8 +32,28 @@ function Admin() {
   }
 
   useEffect(() => {
-    if (isAdmin && adminUserId && adminPassword) load();
-  }, []);
+    const currentUserId = storage.getUserId();
+    if (!currentUserId) {
+      navigate({ to: "/login" });
+      return;
+    }
+    api.getProfile(currentUserId).then(async (result) => {
+      if (result.profile.role !== "admin") {
+        clearAdminAccess();
+        toast.error("Admin access required");
+        navigate({ to: "/" });
+        return;
+      }
+      const password = "admin123";
+      setAdminUserId(currentUserId);
+      setAdminPassword(password);
+      setIsAdmin(true);
+      await load(currentUserId, password);
+    }).catch(() => {
+      clearAdminAccess();
+      navigate({ to: "/" });
+    });
+  }, [navigate]);
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -44,9 +66,6 @@ function Admin() {
     setLoading(true);
     try {
       await api.adminLogin({ admin_user_id: cleanId, admin_password: cleanPassword });
-      localStorage.setItem("mpa_admin_user_id", cleanId);
-      localStorage.setItem("mpa_admin_password", cleanPassword);
-      localStorage.setItem("mpa_admin_ok", "true");
       setIsAdmin(true);
       await load(cleanId, cleanPassword);
       toast.success("Admin access granted");
@@ -58,24 +77,21 @@ function Admin() {
   }
 
   function logoutAdmin() {
-    localStorage.removeItem("mpa_admin_user_id");
-    localStorage.removeItem("mpa_admin_password");
-    localStorage.removeItem("mpa_admin_ok");
+    clearAdminAccess();
     setIsAdmin(false);
-    setUsers([]);
     setAdminPassword("");
   }
 
-  async function addCredits(user: AdminUser) {
-    const amount = Math.max(1, Number(amounts[user.id] || 1));
+  async function grantRequest(request: CreditRequest) {
     if (!adminUserId || !adminPassword) return;
-    setGranting(user.id);
+    const amount = Math.max(1, Number(amounts[`request:${request.id}`] || request.requested_credits || 3));
+    setGranting(`request:${request.id}`);
     try {
-      const result = await api.addCredits({ admin_user_id: adminUserId, admin_password: adminPassword, user_id: user.id, amount });
-      setUsers((list) => list.map((item) => item.id === user.id ? { ...item, credits: result.credits } : item));
-      toast.success("Credits added", { description: `${amount} credit${amount === 1 ? "" : "s"} added to ${user.name}.` });
+      const result = await api.grantCreditRequest({ admin_user_id: adminUserId, admin_password: adminPassword, request_id: request.id, amount });
+      setRequests((list) => list.filter((item) => item.id !== request.id));
+      toast.success("Request approved", { description: `${amount} credits granted.` });
     } catch (error) {
-      toast.error("Could not add credits", { description: error instanceof Error ? error.message : "Please try again." });
+      toast.error("Could not approve request", { description: error instanceof Error ? error.message : "Please try again." });
     } finally {
       setGranting(null);
     }
@@ -109,7 +125,7 @@ function Admin() {
             <input
               value={adminUserId}
               onChange={(e) => setAdminUserId(e.target.value)}
-              placeholder="Admin user ID, e.g. 11"
+              placeholder="Admin user ID, e.g. 18"
               className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
             />
             <input
@@ -131,58 +147,46 @@ function Admin() {
       {isAdmin && (
       <section className="rounded-xl border border-border bg-surface shadow-soft overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between gap-3">
-          <div className="text-sm font-medium">Credit users</div>
+          <div>
+            <div className="text-sm font-medium">Pending credit requests</div>
+            <p className="mt-0.5 text-xs text-text-light">Users appear here only after they request more credits.</p>
+          </div>
           <button onClick={logoutAdmin} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-text-secondary hover:text-destructive transition">
             <LogOut className="size-3.5" /> Admin logout
           </button>
         </div>
         {loading ? (
           <div className="p-6 flex items-center gap-2 text-sm text-text-secondary">
-            <Loader2 className="size-4 animate-spin" /> Loading users...
+            <Loader2 className="size-4 animate-spin" /> Loading requests...
           </div>
-        ) : users.length === 0 ? (
-          <div className="p-6 text-sm text-text-secondary">No users found.</div>
+        ) : requests.length === 0 ? (
+          <div className="p-6 text-sm text-text-secondary">No credit requests yet.</div>
         ) : (
           <div className="divide-y divide-border">
-            {users.map((user) => (
-              <article key={user.id} className="p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="size-10 rounded-lg bg-muted grid place-items-center text-text-secondary">
-                    <UserRound className="size-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm font-semibold truncate">{user.name}</h2>
-                      {user.role === "admin" && <span className="text-[10px] uppercase tracking-wider rounded-full bg-primary-light text-primary px-2 py-0.5">Admin</span>}
-                    </div>
-                    <div className="mt-1 text-xs text-text-light">
-                      ID {user.id} · {user.goal.replace("_", " ")} · Budget ₹{Math.round(user.budget_weekly || 0)}
-                    </div>
+            {requests.map((request) => (
+              <article key={request.id} className="p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-medium">{request.users?.name || `User ${request.user_id}`}</div>
+                  <div className="mt-0.5 text-xs text-text-light">
+                    ID {request.user_id} · Current credits {request.users?.credits ?? 0} · Requested {request.requested_credits}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-muted px-3 py-2 min-w-[92px]">
-                    <div className="text-[10px] uppercase tracking-wider text-text-light">Credits</div>
-                    <div className="mt-0.5 flex items-center gap-1 text-sm font-semibold">
-                      <Coins className="size-3.5 text-primary" /> {user.credits}
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2">
                   <input
                     type="number"
                     min={1}
                     max={100}
-                    value={amounts[user.id] ?? 1}
-                    onChange={(e) => setAmounts((current) => ({ ...current, [user.id]: Number(e.target.value || 1) }))}
+                    value={amounts[`request:${request.id}`] ?? request.requested_credits ?? 3}
+                    onChange={(e) => setAmounts((current) => ({ ...current, [`request:${request.id}`]: Number(e.target.value || 1) }))}
                     className="w-20 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
                   />
                   <button
-                    onClick={() => addCredits(user)}
-                    disabled={granting === user.id}
+                    onClick={() => grantRequest(request)}
+                    disabled={granting === `request:${request.id}`}
                     className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-60 transition"
                   >
-                    {granting === user.id ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                    Add
+                    {granting === `request:${request.id}` ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                    Grant
                   </button>
                 </div>
               </article>
@@ -193,4 +197,12 @@ function Admin() {
       )}
     </div>
   );
+}
+
+function clearAdminAccess() {
+  try {
+    localStorage.removeItem("mpa_admin_user_id");
+    localStorage.removeItem("mpa_admin_password");
+    localStorage.removeItem("mpa_admin_ok");
+  } catch {}
 }

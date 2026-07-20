@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ArrowRight, LockKeyhole, Mail, Sparkles, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/login")({
   component: Login,
@@ -15,10 +16,11 @@ function Login() {
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"login" | "signup">("login");
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const cleanName = name.trim() || email.split("@")[0] || "Guest";
-    if (!email.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim() || cleanEmail.split("@")[0] || "Guest";
+    if (!cleanEmail) {
       toast.error("Enter your email");
       return;
     }
@@ -27,16 +29,62 @@ function Login() {
       return;
     }
 
+    let existingProfile: any = null;
+    try {
+      const result = await api.getProfileByEmail(cleanEmail);
+      existingProfile = result.profile;
+    } catch {
+      if (mode === "login") {
+        toast.error("Account not found", { description: "Please sign up first, or check the email address." });
+        return;
+      }
+    }
+
+    if (mode === "signup" && existingProfile) {
+      toast.error("Account already exists", { description: "Please login with this email instead of signing up again." });
+      return;
+    }
+
+    if (mode === "login" && !existingProfile) {
+      toast.error("Account not found", { description: "Please sign up first, or check the email address." });
+      return;
+    }
+
+    storage.clearAll();
     storage.setAuthUser({
       name: cleanName,
-      email: email.trim(),
+      email: cleanEmail,
       logged_in_at: new Date().toISOString(),
     });
-    storage.setUserName(cleanName);
 
-    const hasProfile = !!storage.getUserId();
+    if (existingProfile) {
+      storage.setUserId(String(existingProfile.id));
+      storage.setUserName(existingProfile.name || cleanName);
+      storage.setGoal(existingProfile.goal || "maintenance");
+      storage.setCredits(Number(existingProfile.credits ?? 3));
+      storage.setRole(existingProfile.role || "user");
+      storage.setTelegram(existingProfile.telegram_id || "");
+      storage.setProfile({
+        name: existingProfile.name || cleanName,
+        email: cleanEmail,
+        age: existingProfile.age,
+        weight: existingProfile.weight_kg,
+        height: existingProfile.height_cm,
+        weekly_budget: existingProfile.budget_weekly,
+        telegram: existingProfile.telegram_id,
+        goal: existingProfile.goal,
+        dietary_preference: existingProfile.dietary_type,
+        allergies: existingProfile.allergies || [],
+        preferences: existingProfile.preferences || [],
+      });
+      toast.success("Welcome back");
+      navigate({ to: "/" });
+      return;
+    }
+
+    storage.setUserName(cleanName);
     toast.success(mode === "signup" ? "Account created" : "Welcome back");
-    navigate({ to: hasProfile ? "/" : "/onboarding" });
+    navigate({ to: "/onboarding" });
   }
 
   return (

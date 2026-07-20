@@ -18,9 +18,10 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None):
+def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None):
     payload = {
         "name": name,
+        "email": (email or "").strip().lower(),
         "age": age,
         "weight_kg": weight_kg,
         "height_cm": height_cm,
@@ -54,23 +55,7 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         return user_record
     except Exception as exc:
         print(f"⚠️ Error creating user: {exc}")
-        fallback_payload = {
-            k: v for k, v in payload.items()
-            if k not in {"dietary_type", "dietary_preferences", "allergies", "preferences", "credits", "role"}
-        }
-        try:
-            result = supabase.table("users").insert(fallback_payload).select("*").execute()
-            user_record = result.data[0] if result.data else {}
-            if dietary_type and "dietary_type" not in user_record:
-                user_record["dietary_type"] = dietary_type
-            if allergies and "allergies" not in user_record:
-                user_record["allergies"] = allergies
-            if preferences and "preferences" not in user_record:
-                user_record["preferences"] = preferences
-            return user_record
-        except Exception as exc2:
-            print(f"⚠️ Error creating user fallback: {exc2}")
-            return {}
+        return {}
 
 
 def get_user(user_id):
@@ -79,6 +64,26 @@ def get_user(user_id):
         return result.data or {}
     except Exception as exc:
         print(f"⚠️ Error fetching user {user_id}: {exc}")
+        return {}
+
+
+def get_user_by_email(email):
+    clean_email = (email or "").strip().lower()
+    if not clean_email:
+        return {}
+    try:
+        result = (
+            supabase.table("users")
+            .select("*")
+            .eq("email", clean_email)
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+        users = result.data or []
+        return users[0] if users else {}
+    except Exception as exc:
+        print(f"⚠️ Error fetching user with email {clean_email}: {exc}")
         return {}
 
 
@@ -100,6 +105,7 @@ def get_user_by_telegram_id(telegram_id):
 def update_user(user_id, updates):
     allowed = {
         "name",
+        "email",
         "age",
         "weight_kg",
         "height_cm",
@@ -174,6 +180,61 @@ def add_user_credits(user_id, amount):
         return result.data[0] if result.data else {}
     except Exception as exc:
         print(f"⚠️ Error adding credits for user {user_id}: {exc}")
+        return {}
+
+
+def create_credit_request(user_id, requested_credits=3, note=""):
+    user = get_user(user_id)
+    if not user:
+        return {}
+    try:
+        existing = (
+            supabase.table("credit_requests")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return existing.data[0]
+        payload = {
+            "user_id": user_id,
+            "requested_credits": int(requested_credits or 3),
+            "status": "pending",
+            "note": note or "",
+        }
+        result = supabase.table("credit_requests").insert(payload).select("*").execute()
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error creating credit request for user {user_id}: {exc}")
+        return {}
+
+
+def list_credit_requests(status="pending"):
+    try:
+        query = supabase.table("credit_requests").select("*, users(id,name,email,credits,role)").order("id", desc=True)
+        if status:
+            query = query.eq("status", status)
+        result = query.execute()
+        return result.data or []
+    except Exception as exc:
+        print(f"⚠️ Error listing credit requests: {exc}")
+        return []
+
+
+def update_credit_request(request_id, updates):
+    try:
+        result = (
+            supabase.table("credit_requests")
+            .update(updates or {})
+            .eq("id", request_id)
+            .select("*")
+            .execute()
+        )
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error updating credit request {request_id}: {exc}")
         return {}
 
 

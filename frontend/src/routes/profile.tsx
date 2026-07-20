@@ -42,6 +42,17 @@ function Profile() {
     setStreak(storage.getStreak());
     const userId = storage.getUserId();
     if (userId) {
+      api.getProfile(userId).then((result) => {
+        const freshProfile = normalizeProfile(result.profile);
+        setProfile(freshProfile);
+        setSavedProfile(freshProfile);
+        storage.setProfile(freshProfile);
+        storage.setUserName(freshProfile.name);
+        storage.setGoal(freshProfile.goal);
+        storage.setCredits(Number(result.profile.credits ?? storage.getCredits()));
+        storage.setRole(result.profile.role || storage.getRole());
+        storage.setTelegram(freshProfile.telegram || "");
+      }).catch(() => {});
       api.getStreak(userId).then((result) => {
         storage.setStreak(result.streak);
         setStreak(result.streak);
@@ -81,13 +92,21 @@ function Profile() {
     try {
       const userId = storage.getUserId();
       if (userId) {
-        await api.updateProfile(userId, profile);
+        const result = await api.updateProfile(userId, profile);
+        const updatedProfile = normalizeProfile(result.profile);
+        setProfile(updatedProfile);
+        storage.setProfile(updatedProfile);
+        storage.setUserName(updatedProfile.name);
+        storage.setGoal(updatedProfile.goal);
+        storage.setTelegram(updatedProfile.telegram || "");
+        setSavedProfile(updatedProfile);
+      } else {
+        storage.setProfile(profile);
+        storage.setUserName(profile.name);
+        storage.setGoal(profile.goal);
+        storage.setTelegram(profile.telegram || "");
+        setSavedProfile(profile);
       }
-      storage.setProfile(profile);
-      storage.setUserName(profile.name);
-      storage.setGoal(profile.goal);
-      if (profile.telegram) storage.setTelegram(profile.telegram);
-      setSavedProfile(profile);
       setIsEditing(false);
       toast.success("Profile updated");
     } catch (error) {
@@ -111,7 +130,7 @@ function Profile() {
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight truncate">{profile.name || "Guest"}</h1>
           <p className="text-sm text-text-secondary capitalize mt-0.5">
-            {String(profile.goal).replace("_", " ")} · {streak}-day streak
+            {String(profile.goal).replace("_", " ")} · {streak}-week planning streak
           </p>
         </div>
         {isEditing ? (
@@ -279,6 +298,23 @@ function Profile() {
       </section>}
     </div>
   );
+}
+
+function normalizeProfile(raw: any): OnboardPayload {
+  return {
+    name: raw?.name || "",
+    email: raw?.email || "",
+    age: Number(raw?.age || 28),
+    weight: Number(raw?.weight ?? raw?.weight_kg ?? 70),
+    height: Number(raw?.height ?? raw?.height_cm ?? 170),
+    goal: raw?.goal || "maintenance",
+    weekly_budget: Number(raw?.weekly_budget ?? raw?.budget_weekly ?? 2500),
+    telegram: raw?.telegram ?? raw?.telegram_id ?? "",
+    dietary_preference: raw?.dietary_preference ?? raw?.dietary_type ?? "Vegetarian",
+    allergies: raw?.allergies || [],
+    preferences: raw?.preferences || [],
+    family: raw?.family || [],
+  };
 }
 
 function splitList(value: string) {

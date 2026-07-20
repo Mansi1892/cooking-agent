@@ -4,28 +4,33 @@ AI-powered meal planning for Indian households. The app has a FastAPI backend, a
 
 ## Current Status
 
-- Frontend dev server: `http://127.0.0.1:8080/`
+- Frontend dev server: `http://localhost:8080/`
 - Backend API: `http://127.0.0.1:8000`
 - Backend health: `GET http://127.0.0.1:8000/health`
-- Login route: `http://127.0.0.1:8080/login`
+- Login route: `http://localhost:8080/login`
 
-The current login is a local/demo login stored in browser localStorage. It gates the UI, then sends new users to onboarding. Real backend authentication can be added later with Supabase Auth or custom API endpoints.
+The current login is a local browser session backed by a Supabase user profile lookup. It is not full password authentication yet, but it does prevent duplicate signup by email, clears stale local cache when switching accounts, and restores the correct backend profile on login. Real backend authentication can be added later with Supabase Auth or custom API endpoints.
 
 ## Features
 
-- Local login/signup screen before onboarding
+- Local login/signup screen before onboarding, with email-based profile restore
 - Onboarding for personal profile, family members, goals, budget, allergies, preferences, and Telegram chat ID
 - Goals: weight loss, muscle gain, maintenance
 - Dietary preferences: vegetarian, eggetarian, vegan, non-vegetarian, pescatarian, keto
 - AI-generated 7-day meal plans with backend summary validation for calories, protein, budget, and variety
+- Week selector on Meal Plans: generate for this week or next week, useful for Saturday/Sunday planning
+- Weekly history is grouped by Monday-Sunday planning week, so regenerations in the same week do not create duplicate history cards
+- Meal-plan summaries show average daily calories and average daily protein, not weekly totals
+- Recent saved meals are passed back into the AI prompt so the next weekly menu avoids repeating the same dishes
 - 3 free meal-plan generation credits for every new user
-- Admin credit manager for adding credits after free generations are used
-- Diet-aware plan generation prompts and diet-aware frontend fallback data
+- Request-based admin credit manager for adding credits after free generations are used
+- Diet-aware plan generation prompts
 - Approved-only recipe buttons in the browser; recipes are generated on demand from online recipe context and AI
 - Auto-refresh on the Meal Plans page while a plan is pending so Telegram approval unlocks recipes without manual reload
-- Weekly plan streak calculated from saved Supabase meal plans
+- No-Telegram auto approval: users without a Telegram chat ID get an approved browser plan immediately
+- Weekly planning streak calculated from saved Supabase meal-plan weeks
 - Grocery list and meal-plan history views
-- Telegram bot support for sending plans for approval, collecting rejection feedback, and regenerating structured plans
+- Telegram bot support for sending plans for approval, collecting rejection feedback, and regenerating structured plans; Telegram sends are fired asynchronously after plan save
 - Settings page for account status, Telegram test message, logout, and local profile reset
 - Supabase-backed storage for users, family members, meal plans, day meals, grocery lists, and feedback
 
@@ -54,8 +59,8 @@ cooking-agent/
 ├── tools.py                       # Agent tools: recipe search, profile analysis, grocery, Telegram
 ├── requirements.txt               # Python dependencies
 └── frontend/
-    ├── src/routes/login.tsx       # Local demo login
-    ├── src/routes/admin.tsx       # Admin credit manager
+    ├── src/routes/login.tsx       # Local email session and profile restore
+    ├── src/routes/admin.tsx       # Pending credit request manager
     ├── src/routes/onboarding.tsx  # Profile and family onboarding
     ├── src/routes/meal-plans.tsx
     ├── src/routes/grocery.tsx
@@ -114,29 +119,43 @@ Expected:
 ```bash
 cd cooking-agent/frontend
 npm install
-npm run dev -- --host 127.0.0.1 --port 8080
+npm run dev -- --host 0.0.0.0 --port 8080
 ```
 
 Open:
 
 ```text
-http://127.0.0.1:8080/
+http://localhost:8080/
 ```
 
 ## User Flow
 
 1. User opens the frontend.
 2. If not logged in locally, user is redirected to `/login`.
-3. Login/signup stores a local session.
+3. Login/signup stores a local session and clears stale cached profile/plan/admin state before switching users.
 4. If no backend `user_id` exists yet, user is sent to `/onboarding`.
 5. Onboarding saves the user/family profile through the backend.
 6. New users start with 3 free meal-plan credits.
-7. Meal plans are generated and saved using the backend `user_id`; each successful fresh generation uses 1 credit.
-8. Pending plans are sent to Telegram if a numeric chat ID is saved.
-9. Approving a plan in Telegram updates Supabase; the browser auto-refreshes and unlocks recipe buttons.
-10. Grocery/history views read the saved plan data or use diet-aware demo fallback data if the backend is unreachable.
+7. On Meal Plans, the user chooses `This week` or `Next week` before generation.
+8. Meal plans are generated and saved using the backend `user_id`; each successful fresh generation uses 1 credit.
+9. If a numeric Telegram chat ID is saved, the plan stays pending and is sent to Telegram for approval.
+10. If no Telegram chat ID is saved, the plan is marked approved immediately and browser recipe buttons unlock.
+11. Approving a Telegram plan updates Supabase; the browser auto-refreshes and unlocks recipe buttons.
+12. Grocery/history views read saved Supabase plan data. If no plan exists, they show empty states instead of demo grocery/history data.
 
 Telegram rejection/regeneration is treated as part of the same pending plan review and does not consume another credit.
+
+## Weekly Planning Rules
+
+Planning weeks run Monday to Sunday.
+
+- `This week` saves the plan against the current Monday.
+- `Next week` saves the plan against the next Monday.
+- The backend accepts only this week or next week for normal generation, preventing accidental old-week plans.
+- History shows one card per week. If the user generates or regenerates more than once in the same week, the history card shows the number of versions for that week.
+- The planning streak counts consecutive planned weeks, not days. A `1 week` streak means there is a saved plan for the current planning week.
+- Average calories and protein are daily averages across the 7-day plan.
+- The AI receives recent saved meal names and is instructed to avoid repeating those dishes in the new week.
 
 ## Credit/Admin Setup
 
@@ -148,18 +167,31 @@ Run this once in Supabase SQL Editor:
 
 The setup adds:
 
+- `users.email text`
 - `users.credits integer default 3`
 - `users.role text default 'user'`
+- `credit_requests` for request-based credit grants
+- a unique non-blank email index after old duplicate/null email users are cleaned
 
-To create the first admin profile, edit `supabase_credit_setup.sql` and replace `11` with the backend user id that should become admin:
+To create the first admin profile, edit `supabase_credit_setup.sql` and replace the sample id with the backend user id that should become admin:
 
 ```sql
 update public.users
 set role = 'admin'
-where id = 11;
+where id = 18;
 ```
 
-Admin users open `/admin`, enter the backend admin user ID and `ADMIN_PASSWORD`, then can view users and add meal-plan credits. If `ADMIN_PASSWORD` is not set locally, the backend uses `admin123` for development only.
+Admin users see the `/admin` tab. Normal users do not see it, and direct `/admin` navigation redirects away unless the current backend profile has `role = 'admin'`.
+
+Credits are request-based:
+
+1. A normal user spends the 3 free generations.
+2. The Meal Plans page shows a request button.
+3. The user requests more credits.
+4. The admin page shows only pending credit requests.
+5. Admin grants credits from that request list.
+
+The backend still exposes manual admin credit endpoints for API compatibility, but the frontend uses the request workflow.
 
 ## Telegram Flow
 
@@ -177,7 +209,7 @@ venv/bin/python telegram_bot.py
 4. Open your bot in Telegram and send `/start`.
 5. The bot replies with your numeric Telegram chat ID.
 6. Paste that number into the app's `Telegram chat ID` field.
-7. When a plan is generated, the backend queues a Telegram send if a chat ID is saved.
+7. When a plan is generated, the backend starts an asynchronous Telegram send if a chat ID is saved.
 8. Approve keeps the plan visible in Telegram and removes the buttons.
 9. Reject asks for text feedback, regenerates a new structured plan, saves it, and sends the revised plan to Telegram.
 
@@ -199,8 +231,14 @@ Recipe generation is intentionally browser-only. Meal cards show a `Recipe` butt
 - `GET /api/admin/users?admin_user_id={admin_user_id}`
 - `POST /admin/credits`
 - `POST /api/admin/credits`
-- `POST /plan/generate/{user_id}`
-- `POST /api/plan/generate/{user_id}`
+- `POST /credit-requests`
+- `POST /api/credit-requests`
+- `GET /admin/credit-requests`
+- `GET /api/admin/credit-requests`
+- `POST /admin/credit-requests/grant`
+- `POST /api/admin/credit-requests/grant`
+- `POST /plan/generate/{user_id}` with optional JSON body `{ "week_offset": 0 }` for this week or `{ "week_offset": 1 }` for next week
+- `POST /api/plan/generate/{user_id}` with the same optional body
 - `GET /plan/latest/{user_id}`
 - `GET /api/plan/latest/{user_id}`
 - `GET /streak/{user_id}`
@@ -238,12 +276,16 @@ npm run build
 - The frontend dev server should run on `8080`.
 - The backend should run on `8000`.
 - Run `telegram_bot.py` separately whenever you need Approve/Reject buttons to work; the API can send messages, but the bot process listens for callbacks.
-- If a vegetarian user sees chicken/fish/eggs, clear local storage or reset the profile and generate a new plan; old demo data may be cached in the browser.
+- Logout and login clear local user/profile/plan/admin cache before switching accounts.
+- If a vegetarian user sees chicken/fish/eggs, confirm the saved profile dietary preference and generate a new plan; old plans remain in history.
 - Existing users with `telegram_id` saved as `@username` should be updated to the numeric Telegram chat ID.
+- Grocery cost is AI-estimated from the generated plan and budget context. It is not a live grocery-cart checkout against a retailer.
 
 ## Future Improvements
 
-- Replace local/demo login with real Supabase Auth or backend auth
+- Replace local email session with real Supabase Auth or backend auth
+- Move Telegram/background jobs to a durable worker/queue for production reliability
+- Add database migrations and seed scripts instead of one-off SQL snippets
 - Add edit/regenerate controls for individual meals/days
 - Add richer grocery persistence and grocery export
 - Add automated end-to-end tests

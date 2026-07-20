@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  Sparkles, ChevronDown, ChevronUp, Clock, Flame, CheckCircle2, Loader2, ArrowRight, BookOpen, X,
+  Sparkles, ChevronDown, ChevronUp, Clock, Flame, CheckCircle2, Loader2, ArrowRight, BookOpen, X, CalendarRange,
 } from "lucide-react";
-import { api, mock, safe, type MealPlan, type Recipe } from "@/lib/api";
+import { api, type MealPlan, type Recipe } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
 
@@ -20,6 +20,17 @@ const STEPS = [
   "Saving your plan",
 ];
 
+const APPROVAL_TOAST_IDS = new Set<string>();
+
+function showApprovalToastOnce(planId: string, description: string) {
+  if (!planId || APPROVAL_TOAST_IDS.has(planId)) return;
+  APPROVAL_TOAST_IDS.add(planId);
+  toast.success("Plan approved", {
+    id: `plan-approved-${planId}`,
+    description,
+  });
+}
+
 function MealPlans() {
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,10 +41,11 @@ function MealPlans() {
   const [openDay, setOpenDay] = useState<string | null>("Monday");
   const [credits, setCredits] = useState(storage.getCredits());
   const [role, setRole] = useState(storage.getRole());
+  const [creditRequested, setCreditRequested] = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);
 
   useEffect(() => {
     const userId = storage.getUserId();
-    const profile = storage.getProfile();
     if (userId) {
       api.getProfile(userId).then((result) => {
         const nextCredits = Number(result.profile.credits ?? 0);
@@ -43,8 +55,12 @@ function MealPlans() {
         setRole(result.profile.role || "user");
       }).catch(() => {});
     }
-    if (userId) safe(api.getLatestPlan(userId).then((r) => r.plan), mock.plan(profile)).then((p) => { setPlan(p); setLoading(false); });
-    else { setPlan(mock.plan(profile)); setLoading(false); }
+    if (userId) {
+      api.getLatestPlan(userId).then((r) => setPlan(r.plan)).catch(() => setPlan(null)).finally(() => setLoading(false));
+    } else {
+      setPlan(null);
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -53,8 +69,9 @@ function MealPlans() {
     const timer = window.setInterval(() => {
       api.getLatestPlan(userId).then((result) => {
         setPlan(result.plan);
+        const planId = String(result.plan.id || "");
         if (result.plan.status === "approved") {
-          toast.success("Plan approved", { description: "Recipes are unlocked." });
+          showApprovalToastOnce(planId, "Recipes are unlocked.");
         }
       }).catch(() => {});
     }, 5000);
@@ -70,7 +87,12 @@ function MealPlans() {
     }
     setGenerating(true);
     setProgress(0);
-    const userId = storage.getUserId() || "demo-user";
+    const userId = storage.getUserId();
+    if (!userId) {
+      toast.error("Create profile first");
+      setGenerating(false);
+      return;
+    }
     // simulated progress
     const ticker = setInterval(() => {
       setProgress((p) => (p < 90 ? p + 5 : p));
@@ -78,8 +100,9 @@ function MealPlans() {
     try {
       let newPlan: MealPlan;
       try {
-        const result = await api.generatePlan(userId);
+        const result = await api.generatePlan(userId, { week_offset: weekOffset });
         newPlan = "plan" in result ? result.plan : result;
+        const planId = String(newPlan.id || "");
         if ("credits_remaining" in result && typeof result.credits_remaining === "number") {
           storage.setCredits(result.credits_remaining);
           setCredits(result.credits_remaining);
@@ -88,6 +111,8 @@ function MealPlans() {
           toast.success("Sent to Telegram for approval");
         } else if ("telegram_queued" in result && result.telegram_queued) {
           toast.success("Telegram send queued", { description: "Your plan will arrive shortly." });
+        } else if ("auto_approved" in result && result.auto_approved) {
+          showApprovalToastOnce(planId, "No Telegram chat ID found, so the plan was finalized here.");
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
@@ -95,17 +120,30 @@ function MealPlans() {
           toast.error("No meal plan credits left", { description: message });
           return;
         }
-        await new Promise((r) => setTimeout(r, 1500));
-        newPlan = mock.plan(storage.getProfile());
-        toast.message("Generated demo plan", { description: "Backend unreachable — showing a beautiful sample." });
+        toast.error("Could not generate plan", { description: message || "Backend unavailable. Please try again." });
+        return;
       }
       setPlan(newPlan);
       storage.setLastPlanId(newPlan.id);
       setProgress(100);
-      toast.success("Your meal plan is ready");
+      if (newPlan.status !== "approved") {
+        toast.success("Your meal plan is ready");
+      }
     } finally {
       clearInterval(ticker);
       setTimeout(() => setGenerating(false), 400);
+    }
+  }
+
+  async function requestMoreCredits() {
+    const userId = storage.getUserId();
+    if (!userId) return;
+    try {
+      await api.requestCredits({ user_id: userId, requested_credits: 3, note: "User requested more meal plan credits." });
+      setCreditRequested(true);
+      toast.success("Credit request sent", { description: "Admin can now approve it from the Admin page." });
+    } catch (error) {
+      toast.error("Could not request credits", { description: error instanceof Error ? error.message : "Please try again." });
     }
   }
 
@@ -142,6 +180,16 @@ function MealPlans() {
           <div className="rounded-lg border border-border bg-surface px-3 py-2 text-sm">
             <span className="text-text-light">Credits</span> <span className="font-semibold">{isAdmin ? "Unlimited" : credits}</span>
           </div>
+          <select
+            value={weekOffset}
+            onChange={(event) => setWeekOffset(Number(event.target.value))}
+            disabled={generating}
+            className="h-10 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-text-primary outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
+            aria-label="Planning week"
+          >
+            <option value={0}>This week</option>
+            <option value={1}>Next week</option>
+          </select>
           <button onClick={generate} disabled={generating || (!!storage.getUserId() && !isAdmin && credits <= 0)} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-soft">
             {generating ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
             {generating ? "Generating…" : !isAdmin && credits <= 0 ? "Ask admin for credits" : "Generate new plan"}
@@ -172,82 +220,110 @@ function MealPlans() {
         </section>
       )}
 
-      {/* Summary */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <SummaryStat label="Healthy Score" value={`${s.healthy_score}`} unit="/100" tone="success" />
-        <SummaryStat label="Avg Calories" value={s.avg_calories.toLocaleString()} unit="kcal" tone="primary" />
-        <SummaryStat label="Avg Protein" value={`${s.avg_protein}g`} tone="accent" />
-        <SummaryStat label="Est. Grocery Cost" value={`₹${s.total_budget.toLocaleString()}`} tone="warning" />
-      </section>
+      {!isAdmin && credits <= 0 && !generating && (
+        <section className="rounded-2xl border border-warning/30 bg-warning/10 p-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold">Credits expired</h2>
+            <p className="mt-1 text-sm text-text-secondary">Please request more credits to generate another meal plan.</p>
+          </div>
+          <button onClick={requestMoreCredits} disabled={creditRequested} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-60 transition">
+            {creditRequested ? "Request sent" : "Request credits"}
+          </button>
+        </section>
+      )}
 
-      {/* Days */}
-      <section className="space-y-3">
-        {(plan?.days ?? []).map((d) => {
-          const open = openDay === d.day;
-          const proteinPct = Math.min(100, (d.protein / 180) * 100);
-          const calPct = Math.min(100, (d.calories / 2500) * 100);
-          return (
-            <article key={d.day} className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
-              <button onClick={() => setOpenDay(open ? null : d.day)} className="w-full p-5 flex items-center gap-4 text-left hover:bg-muted/30 transition">
-                <div className="relative size-12 shrink-0">
-                  <svg viewBox="0 0 36 36" className="size-12">
-                    <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border)" strokeWidth="3" />
-                    <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--primary)" strokeWidth="3"
-                      strokeDasharray={`${(calPct * 97) / 100} 97`} strokeLinecap="round" transform="rotate(-90 18 18)" />
-                  </svg>
-                  <div className="absolute inset-0 grid place-items-center text-[10px] font-semibold">{Math.round(calPct)}%</div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-semibold">{d.day}</h3>
-                    <Badge status={d.status || "planned"} />
-                  </div>
-                  <div className="text-xs text-text-secondary mt-0.5">{d.calories} kcal · {d.protein}g protein · {d.meals.length} meals</div>
-                  <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full bg-success" style={{ width: `${proteinPct}%` }} />
-                  </div>
-                </div>
-                {open ? <ChevronUp className="size-4 text-text-light" /> : <ChevronDown className="size-4 text-text-light" />}
-              </button>
-              <div className={"grid transition-all duration-300 " + (open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-                <div className="overflow-hidden">
-                  <div className="px-5 pb-5 grid sm:grid-cols-2 gap-3 border-t border-border pt-4">
-                    {d.meals.map((m, idx) => (
-                      <div key={idx} className="rounded-xl border border-border p-4 hover:shadow-elevated hover:-translate-y-0.5 transition">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] uppercase tracking-wider text-primary font-semibold">{m.type}</span>
-                          <span className="text-[11px] text-text-light inline-flex items-center gap-1"><Clock className="size-3" />{m.prep_time ?? 10}m</span>
-                        </div>
-                        <div className="mt-2 text-sm font-medium leading-snug">{m.name}</div>
-                        <div className="mt-3 flex items-center gap-3 text-xs text-text-secondary">
-                          <span className="inline-flex items-center gap-1"><Flame className="size-3 text-warning" />{m.calories} kcal</span>
-                          <span>·</span>
-                          <span>{m.protein}g protein</span>
-                        </div>
-                        {recipesUnlocked && (
-                          <button onClick={() => openRecipe(m)} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:text-primary hover:border-primary/30 transition">
-                            <BookOpen className="size-3.5" /> Recipe
-                          </button>
-                        )}
+      {!plan && !generating ? (
+        <section className="rounded-2xl border border-border bg-surface shadow-soft p-6">
+          <div className="flex items-start gap-3">
+            <div className="size-10 rounded-lg bg-primary-light grid place-items-center text-primary">
+              <CalendarRange className="size-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">No meal plan yet</h2>
+              <p className="mt-1 text-sm text-text-secondary">Generate your first weekly meal plan to see meals, summary, grocery, and recipes here.</p>
+            </div>
+          </div>
+        </section>
+      ) : plan && (
+        <>
+          {/* Summary */}
+          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <SummaryStat label="Healthy Score" value={`${s.healthy_score}`} unit="/100" tone="success" />
+            <SummaryStat label="Avg Daily Calories" value={s.avg_calories.toLocaleString()} unit="kcal" tone="primary" />
+            <SummaryStat label="Avg Daily Protein" value={`${s.avg_protein}g`} tone="accent" />
+            <SummaryStat label="Est. Grocery Cost" value={`₹${s.total_budget.toLocaleString()}`} tone="warning" />
+          </section>
+
+          {/* Days */}
+          <section className="space-y-3">
+            {(plan.days ?? []).map((d) => {
+              const open = openDay === d.day;
+              const proteinPct = Math.min(100, (d.protein / 180) * 100);
+              const calPct = Math.min(100, (d.calories / 2500) * 100);
+              return (
+                <article key={d.day} className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
+                  <button onClick={() => setOpenDay(open ? null : d.day)} className="w-full p-5 flex items-center gap-4 text-left hover:bg-muted/30 transition">
+                    <div className="relative size-12 shrink-0">
+                      <svg viewBox="0 0 36 36" className="size-12">
+                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border)" strokeWidth="3" />
+                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--primary)" strokeWidth="3"
+                          strokeDasharray={`${(calPct * 97) / 100} 97`} strokeLinecap="round" transform="rotate(-90 18 18)" />
+                      </svg>
+                      <div className="absolute inset-0 grid place-items-center text-[10px] font-semibold">{Math.round(calPct)}%</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-semibold">{d.day}</h3>
+                        <Badge status={d.status || "planned"} />
                       </div>
-                    ))}
+                      <div className="text-xs text-text-secondary mt-0.5">{d.calories} kcal · {d.protein}g protein · {d.meals.length} meals</div>
+                      <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full bg-success" style={{ width: `${proteinPct}%` }} />
+                      </div>
+                    </div>
+                    {open ? <ChevronUp className="size-4 text-text-light" /> : <ChevronDown className="size-4 text-text-light" />}
+                  </button>
+                  <div className={"grid transition-all duration-300 " + (open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                    <div className="overflow-hidden">
+                      <div className="px-5 pb-5 grid sm:grid-cols-2 gap-3 border-t border-border pt-4">
+                        {d.meals.map((m, idx) => (
+                          <div key={idx} className="rounded-xl border border-border p-4 hover:shadow-elevated hover:-translate-y-0.5 transition">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] uppercase tracking-wider text-primary font-semibold">{m.type}</span>
+                              <span className="text-[11px] text-text-light inline-flex items-center gap-1"><Clock className="size-3" />{m.prep_time ?? 10}m</span>
+                            </div>
+                            <div className="mt-2 text-sm font-medium leading-snug">{m.name}</div>
+                            <div className="mt-3 flex items-center gap-3 text-xs text-text-secondary">
+                              <span className="inline-flex items-center gap-1"><Flame className="size-3 text-warning" />{m.calories} kcal</span>
+                              <span>·</span>
+                              <span>{m.protein}g protein</span>
+                            </div>
+                            {recipesUnlocked && (
+                              <button onClick={() => openRecipe(m)} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:text-primary hover:border-primary/30 transition">
+                                <BookOpen className="size-3.5" /> Recipe
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </section>
+                </article>
+              );
+            })}
+          </section>
 
-      <section className="rounded-2xl border border-border bg-primary-light/40 p-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h3 className="font-semibold">Ready to shop?</h3>
-          <p className="text-sm text-text-secondary mt-0.5">Your grocery list is grouped and ready to print or export.</p>
-        </div>
-        <Link to="/grocery" className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition">
-          Open grocery list <ArrowRight className="size-4" />
-        </Link>
-      </section>
+          <section className="rounded-2xl border border-border bg-primary-light/40 p-6 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="font-semibold">Ready to shop?</h3>
+              <p className="text-sm text-text-secondary mt-0.5">Your grocery list is grouped and ready to print or export.</p>
+            </div>
+            <Link to="/grocery" className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition">
+              Open grocery list <ArrowRight className="size-4" />
+            </Link>
+          </section>
+        </>
+      )}
 
       {(recipeLoading || recipe) && (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm grid place-items-center p-4">

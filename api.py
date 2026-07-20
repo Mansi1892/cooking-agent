@@ -1,6 +1,7 @@
 import os
+import asyncio
 from datetime import date, datetime, timedelta
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -9,8 +10,10 @@ import uvicorn
 from database import (
     create_user,
     get_user,
+    get_user_by_email,
     add_family_member,
     get_latest_plan,
+    get_meal_plan,
     save_feedback,
     get_user_history,
     update_user,
@@ -18,6 +21,11 @@ from database import (
     consume_user_credit,
     add_user_credits,
     list_users,
+    get_grocery_list,
+    create_credit_request,
+    list_credit_requests,
+    update_credit_request,
+    update_plan_status,
 )
 from agent import generate_meal_plan
 from tools import openai_client, tavily_search
@@ -40,6 +48,7 @@ app.add_middleware(
 
 class UserProfile(BaseModel):
     name: Optional[str] = None
+    email: Optional[str] = None
     age: Optional[int] = None
     weight: Optional[float] = None
     height: Optional[float] = None
@@ -72,6 +81,7 @@ class OnboardingRequest(BaseModel):
     family: Optional[List[FamilyMember]] = Field(default_factory=list)
     family_members: Optional[List[FamilyMember]] = Field(default_factory=list)
     name: Optional[str] = None
+    email: Optional[str] = None
     age: Optional[int] = None
     weight: Optional[float] = None
     height: Optional[float] = None
@@ -95,6 +105,11 @@ class FeedbackRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class GeneratePlanRequest(BaseModel):
+    week_start: Optional[str] = None
+    week_offset: int = Field(default=0, ge=0, le=1)
+
+
 class RecipeRequest(BaseModel):
     user_id: str
     meal_name: str
@@ -112,6 +127,19 @@ class CreditGrantRequest(BaseModel):
 class AdminLoginRequest(BaseModel):
     admin_user_id: str
     admin_password: str
+
+
+class CreditRequestPayload(BaseModel):
+    user_id: str
+    requested_credits: int = Field(default=3, ge=1, le=100)
+    note: Optional[str] = ""
+
+
+class CreditRequestGrantPayload(BaseModel):
+    admin_user_id: str
+    admin_password: str
+    request_id: int
+    amount: int = Field(default=3, ge=1, le=100)
 
 
 async def send_plan_to_telegram_background(telegram_id: str, generated_plan: dict) -> None:
@@ -234,6 +262,7 @@ async def onboard(payload: OnboardingRequest):
         ]
 
     user_name = user_data.get("name") or "Unknown"
+    email = str(user_data.get("email") or "").strip().lower()
     age = user_data.get("age") or 0
     weight_kg = user_data.get("weight_kg") or user_data.get("weight") or 0
     height_cm = user_data.get("height_cm") or user_data.get("height") or 0
@@ -241,6 +270,8 @@ async def onboard(payload: OnboardingRequest):
     budget_weekly = parse_budget(user_data.get("budget_weekly") or user_data.get("weekly_budget") or 0)
     if not str(user_name).strip() or user_name == "Unknown":
         raise HTTPException(status_code=400, detail="Full name is required.")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required. Please sign up or login again.")
     if not goal:
         raise HTTPException(status_code=400, detail="Goal is required.")
     if not is_in_range(age, 1, 120):
@@ -266,8 +297,27 @@ async def onboard(payload: OnboardingRequest):
     allergies = user_data.get("allergies") or []
     preferences = user_data.get("preferences") or []
 
+    updates = {
+        "name": user_name,
+        "email": email,
+        "age": age,
+        "weight_kg": weight_kg,
+        "height_cm": height_cm,
+        "goal": goal,
+        "telegram_id": telegram_id,
+        "budget_weekly": budget_weekly,
+        "dietary_type": dietary_type,
+        "dietary_preferences": dietary_preferences,
+        "allergies": allergies,
+        "preferences": preferences,
+    }
+
+    if get_user_by_email(email):
+        raise HTTPException(status_code=409, detail="An account already exists for this email. Please login instead of signing up again.")
+
     user = create_user(
         name=user_name,
+        email=email,
         age=age,
         weight_kg=weight_kg,
         height_cm=height_cm,
@@ -303,6 +353,7 @@ async def onboard(payload: OnboardingRequest):
 
     user_record = {
         "name": user_name,
+        "email": email,
         "age": age,
         "weight_kg": weight_kg,
         "height_cm": height_cm,
@@ -334,6 +385,21 @@ async def onboard(payload: OnboardingRequest):
 @app.post("/api/onboard")
 async def api_onboard(payload: OnboardingRequest):
     return await onboard(payload)
+
+
+@app.get("/profile/by-email/{email}")
+async def get_profile_by_email(email: str):
+    user = get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    user["credits"] = get_user_credits(user)
+    user["role"] = user.get("role") or "user"
+    return {"profile": user}
+
+
+@app.get("/api/profile/by-email/{email}")
+async def api_get_profile_by_email(email: str):
+    return await get_profile_by_email(email)
 
 
 @app.get("/profile/{user_id}")
@@ -368,13 +434,20 @@ async def update_profile(user_id: str, payload: UserProfile):
         if dietary_preference and isinstance(dietary_preference, str)
         else user_data.get("dietary_preferences") or existing.get("dietary_preferences") or []
     )
+    telegram_update = user_data.get("telegram_id")
+    if telegram_update is None:
+        telegram_update = user_data.get("telegram")
+    if telegram_update is None:
+        telegram_update = existing.get("telegram_id") or ""
+
     updates = {
         "name": user_data.get("name", existing.get("name")),
+        "email": user_data.get("email") or existing.get("email", ""),
         "age": user_data.get("age", existing.get("age")),
         "weight_kg": user_data.get("weight_kg") or user_data.get("weight") or existing.get("weight_kg"),
         "height_cm": user_data.get("height_cm") or user_data.get("height") or existing.get("height_cm"),
         "goal": user_data.get("goal", existing.get("goal")),
-        "telegram_id": user_data.get("telegram_id") or user_data.get("telegram") or "",
+        "telegram_id": str(telegram_update).strip(),
         "budget_weekly": budget_weekly,
         "dietary_type": normalize_dietary_type(
             dietary_preference
@@ -464,6 +537,59 @@ async def admin_add_credits(payload: CreditGrantRequest):
 @app.post("/api/admin/credits")
 async def api_admin_add_credits(payload: CreditGrantRequest):
     return await admin_add_credits(payload)
+
+
+@app.post("/credit-requests")
+async def request_credits(payload: CreditRequestPayload):
+    user = get_user(payload.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if (user.get("role") or "user") == "admin":
+        raise HTTPException(status_code=400, detail="Admin users have unlimited credits.")
+    request = create_credit_request(payload.user_id, payload.requested_credits, payload.note or "")
+    if not request:
+        raise HTTPException(status_code=500, detail="Could not create credit request. Run the credit_requests Supabase setup.")
+    return {"request": request}
+
+
+@app.post("/api/credit-requests")
+async def api_request_credits(payload: CreditRequestPayload):
+    return await request_credits(payload)
+
+
+@app.get("/admin/credit-requests")
+async def admin_credit_requests(admin_user_id: str, admin_password: str):
+    require_admin(admin_user_id, admin_password)
+    return {"requests": list_credit_requests("pending")}
+
+
+@app.get("/api/admin/credit-requests")
+async def api_admin_credit_requests(admin_user_id: str, admin_password: str):
+    return await admin_credit_requests(admin_user_id, admin_password)
+
+
+@app.post("/admin/credit-requests/grant")
+async def admin_grant_credit_request(payload: CreditRequestGrantPayload):
+    require_admin(payload.admin_user_id, payload.admin_password)
+    requests = list_credit_requests("pending")
+    request = next((item for item in requests if int(item.get("id")) == int(payload.request_id)), None)
+    if not request:
+        raise HTTPException(status_code=404, detail="Pending credit request not found")
+    user_id = request.get("user_id")
+    updated = add_user_credits(user_id, payload.amount)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Unable to add credits")
+    update_credit_request(payload.request_id, {
+        "status": "approved",
+        "granted_credits": payload.amount,
+        "resolved_at": datetime.utcnow().isoformat(),
+    })
+    return {"profile": updated, "credits": get_user_credits(updated)}
+
+
+@app.post("/api/admin/credit-requests/grant")
+async def api_admin_grant_credit_request(payload: CreditRequestGrantPayload):
+    return await admin_grant_credit_request(payload)
 
 
 def parse_budget(value) -> float:
@@ -584,14 +710,103 @@ def format_saved_plan_for_ui(plan: dict, user: dict) -> dict:
 def format_history_item(plan: dict, user: dict) -> dict:
     formatted = format_saved_plan_for_ui(plan, user)
     summary = formatted.get("week_summary") or {}
+    week_start = normalize_week_start(plan.get("week_start") or formatted.get("created_at"))
     return {
         "plan_id": formatted.get("id") or str(plan.get("id") or ""),
         "created_at": formatted.get("created_at") or datetime.utcnow().isoformat(),
+        "week_start": week_start.isoformat() if week_start else formatted.get("created_at") or datetime.utcnow().date().isoformat(),
         "status": formatted.get("status") or "ready",
         "goal": user.get("goal") or "maintenance",
         "avg_calories": summary.get("avg_calories") or 0,
         "avg_protein": summary.get("avg_protein") or 0,
     }
+
+
+def normalize_week_start(raw) -> Optional[date]:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            parsed = date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return None
+    return parsed - timedelta(days=parsed.weekday())
+
+
+def resolve_requested_week_start(payload: Optional[GeneratePlanRequest]) -> date:
+    current_week = date.today() - timedelta(days=date.today().weekday())
+    if payload and payload.week_start:
+        parsed = normalize_week_start(payload.week_start)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="Invalid week start.")
+        allowed = {current_week, current_week + timedelta(days=7)}
+        if parsed not in allowed:
+            raise HTTPException(status_code=400, detail="You can generate plans for this week or next week only.")
+        return parsed
+    offset = payload.week_offset if payload else 0
+    return current_week + timedelta(days=7 * offset)
+
+
+def history_sort_key(plan: dict):
+    status_rank = 1 if str(plan.get("status", "")).lower() == "approved" else 0
+    try:
+        created = datetime.fromisoformat(str(plan.get("created_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        created = datetime.min
+    try:
+        plan_id = int(plan.get("id") or 0)
+    except (TypeError, ValueError):
+        plan_id = 0
+    return (status_rank, created, plan_id)
+
+
+def summarize_weekly_history(history: list, user: dict) -> list:
+    grouped = {}
+    counts = {}
+
+    for plan in history or []:
+        week_start = normalize_week_start(plan.get("week_start") or plan.get("created_at"))
+        if not week_start:
+            continue
+        key = week_start.isoformat()
+        counts[key] = counts.get(key, 0) + 1
+        if key not in grouped or history_sort_key(plan) > history_sort_key(grouped[key]):
+            grouped[key] = plan
+
+    items = []
+    for key, plan in grouped.items():
+        item = format_history_item(plan, user)
+        item["week_start"] = key
+        item["version_count"] = counts.get(key, 1)
+        items.append(item)
+
+    return sorted(items, key=lambda item: item.get("week_start", ""), reverse=True)
+
+
+def format_grocery_groups(items) -> list:
+    if not isinstance(items, list):
+        return []
+    groups = []
+    for group in items:
+        if not isinstance(group, dict):
+            continue
+        category = group.get("category") or group.get("name") or "Other"
+        raw_items = group.get("items") or []
+        normalized_items = []
+        for item in raw_items:
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("item") or ""
+                quantity = item.get("quantity") or item.get("qty") or ""
+            else:
+                name = str(item)
+                quantity = ""
+            if name:
+                normalized_items.append({"name": name, "quantity": quantity})
+        if normalized_items:
+            groups.append({"category": category, "items": normalized_items})
+    return groups
 
 
 def calculate_plan_streak(history: list) -> int:
@@ -630,7 +845,7 @@ def calculate_plan_streak(history: list) -> int:
 # --- Meal Plan ---
 
 @app.post("/plan/generate/{user_id}")
-async def plan_generate(user_id: str, background_tasks: BackgroundTasks):
+async def plan_generate(user_id: str, payload: Optional[GeneratePlanRequest] = None):
     if user_id in GENERATING_USERS:
         raise HTTPException(status_code=409, detail="A meal plan is already being generated. Please wait.")
     user = get_user(user_id)
@@ -646,7 +861,8 @@ async def plan_generate(user_id: str, background_tasks: BackgroundTasks):
 
     GENERATING_USERS.add(user_id)
     try:
-        generated_plan = generate_meal_plan(int(user_id))
+        week_start = resolve_requested_week_start(payload)
+        generated_plan = generate_meal_plan(int(user_id), week_start=week_start.isoformat())
         if not generated_plan:
             raise HTTPException(status_code=500, detail="Plan generation failed")
         credit_result = {"ok": True, "credits": get_user_credits(user), "unlimited": True} if is_admin else consume_user_credit(user_id)
@@ -658,16 +874,32 @@ async def plan_generate(user_id: str, background_tasks: BackgroundTasks):
 
         telegram_id = str(user.get("telegram_id") or "").strip()
         if telegram_id:
-            background_tasks.add_task(send_plan_to_telegram_background, telegram_id, generated_plan)
+            plan["status"] = "pending"
+            for day in plan.get("days") or []:
+                day["status"] = "pending"
+            asyncio.create_task(send_plan_to_telegram_background(telegram_id, generated_plan))
+        else:
+            plan_id = str(generated_plan.get("plan_id") or plan.get("id") or "").strip()
+            if plan_id:
+                update_plan_status(plan_id, "approved")
+            plan["status"] = "approved"
+            for day in plan.get("days") or []:
+                day["status"] = "approved"
 
-        return {"plan": plan, "telegram_queued": bool(telegram_id), "credits_remaining": credit_result.get("credits", 0), "credits_unlimited": is_admin}
+        return {
+            "plan": plan,
+            "telegram_queued": bool(telegram_id),
+            "auto_approved": not bool(telegram_id),
+            "credits_remaining": credit_result.get("credits", 0),
+            "credits_unlimited": is_admin,
+        }
     finally:
         GENERATING_USERS.discard(user_id)
 
 
 @app.post("/api/plan/generate/{user_id}")
-async def api_plan_generate(user_id: str, background_tasks: BackgroundTasks):
-    return await plan_generate(user_id, background_tasks)
+async def api_plan_generate(user_id: str, payload: Optional[GeneratePlanRequest] = None):
+    return await plan_generate(user_id, payload)
 
 
 @app.get("/plan/latest/{user_id}")
@@ -741,10 +973,13 @@ async def api_get_plan(plan_id: str):
 
 @app.get("/grocery/{plan_id}")
 async def get_grocery(plan_id: str):
-    plan = get_latest_plan(int(plan_id)) if plan_id.isdigit() else None
+    plan = get_meal_plan(int(plan_id)) if plan_id.isdigit() else None
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-    grocery = plan.get("grocery_list") or []
+    saved_grocery = get_grocery_list(plan.get("id") or plan_id)
+    grocery = format_grocery_groups(saved_grocery.get("items") if saved_grocery else [])
+    if not grocery:
+        grocery = format_grocery_groups(plan.get("grocery_list") or plan.get("shopping_list") or [])
     return {"grocery": grocery}
 
 
@@ -780,7 +1015,7 @@ async def history(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     hist = get_user_history(user_id)
-    return {"history": [format_history_item(plan, user) for plan in hist]}
+    return {"history": summarize_weekly_history(hist, user)}
 
 
 @app.get("/api/history/{user_id}")

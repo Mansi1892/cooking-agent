@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Sparkles, ArrowRight, ArrowLeft, Check, Plus, X, Target, TrendingUp, Minus,
   User as UserIcon, Heart,
@@ -17,12 +17,14 @@ const DIET_OPTIONS = ["Vegetarian", "Eggetarian", "Vegan", "Non-vegetarian", "Pe
 
 function Onboarding() {
   const navigate = useNavigate();
+  const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingExisting, setCheckingExisting] = useState(true);
   const [userId, setUserId] = useState<string>("");
 
   const [form, setForm] = useState<OnboardPayload>({
-    name: "",
+    name: authUser?.name || "",
     age: 28,
     weight: 70,
     height: 170,
@@ -44,6 +46,38 @@ function Onboarding() {
     step === 1 ? Object.keys(familyErrors).length === 0 :
     step === 2 ? true : false;
 
+  useEffect(() => {
+    let cancelled = false;
+    async function restoreExistingProfile() {
+      const storedAuthUser = storage.getAuthUser<{ email?: string; name?: string }>();
+      const email = storedAuthUser?.email?.trim().toLowerCase();
+      if (!email) {
+        setCheckingExisting(false);
+        return;
+      }
+
+      try {
+        const result = await api.getProfileByEmail(email);
+        if (cancelled) return;
+        const profile = result.profile;
+        if (profile?.id) {
+          restoreProfile(profile, storedAuthUser);
+          toast.success("Profile already exists", { description: "Opening your saved meal planner profile." });
+          navigate({ to: "/" });
+          return;
+        }
+      } catch {
+        // No saved profile for this email yet, so onboarding should continue.
+      }
+      if (!cancelled) setCheckingExisting(false);
+    }
+
+    restoreExistingProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   async function submit() {
     const errors = validatePersonal(form);
     if (Object.keys(errors).length > 0) {
@@ -57,32 +91,44 @@ function Onboarding() {
     }
     setSubmitting(true);
     try {
-      let id = "demo-user-" + Math.random().toString(36).slice(2, 8);
-      try {
-        const r = await api.onboard(form);
-        if (r?.user_id) id = r.user_id;
-        storage.setCredits(typeof r?.credits === "number" ? r.credits : 3);
-        storage.setRole(r?.role || "user");
-      } catch {
-        toast.message("Using demo mode", { description: "Backend unreachable — generated a local demo profile." });
-        storage.setCredits(3);
-        storage.setRole("user");
-      }
-      setUserId(id);
-      storage.setAuthUser(storage.getAuthUser() || {
+      const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
+      const payload = { ...form, email: authUser?.email || form.email || "" };
+      const r = await api.onboard(payload);
+      const id = r.user_id;
+      const currentAuthUser = storage.getAuthUser();
+      storage.clearAll();
+      storage.setAuthUser(currentAuthUser || {
         name: form.name,
-        email: "",
+        email: payload.email || "",
         logged_in_at: new Date().toISOString(),
       });
+      storage.setCredits(typeof r?.credits === "number" ? r.credits : 3);
+      storage.setRole(r?.role || "user");
+      setUserId(id);
       storage.setUserId(id);
       storage.setUserName(form.name);
       storage.setGoal(form.goal);
       if (form.telegram) storage.setTelegram(form.telegram);
-      storage.setProfile(form);
+      storage.setProfile(payload);
       setStep(3);
+    } catch (error) {
+      toast.error("Profile was not created", { description: error instanceof Error ? error.message : "Please try again." });
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (checkingExisting) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-background">
+        <div className="text-center">
+          <div className="mx-auto size-10 rounded-xl bg-primary-light text-primary grid place-items-center">
+            <Sparkles className="size-5 animate-pulse" />
+          </div>
+          <div className="mt-4 text-sm font-medium">Checking your saved profile...</div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -159,6 +205,35 @@ function Onboarding() {
       </div>
     </div>
   );
+}
+
+function restoreProfile(profile: any, authUser?: { email?: string; name?: string } | null) {
+  const email = profile.email || authUser?.email || "";
+  const name = profile.name || authUser?.name || email.split("@")[0] || "Guest";
+  storage.setAuthUser({
+    name,
+    email,
+    logged_in_at: new Date().toISOString(),
+  });
+  storage.setUserId(String(profile.id));
+  storage.setUserName(name);
+  storage.setGoal(profile.goal || "maintenance");
+  storage.setCredits(Number(profile.credits ?? 3));
+  storage.setRole(profile.role || "user");
+  storage.setTelegram(profile.telegram_id || "");
+  storage.setProfile({
+    name,
+    email,
+    age: profile.age,
+    weight: profile.weight_kg,
+    height: profile.height_cm,
+    weekly_budget: profile.budget_weekly,
+    telegram: profile.telegram_id,
+    goal: profile.goal,
+    dietary_preference: profile.dietary_type,
+    allergies: profile.allergies || [],
+    preferences: profile.preferences || [],
+  });
 }
 
 function StepIndicator({ step }: { step: number }) {

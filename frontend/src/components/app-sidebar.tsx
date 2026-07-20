@@ -35,26 +35,46 @@ export function AppSidebar() {
   const [role, setRole] = useState("user");
 
   useEffect(() => {
-    setName(storage.getUserName() || "Guest");
-    setGoal(storage.getGoal() || "Maintenance");
-    setStreak(storage.getStreak() || 0);
-    setCredits(storage.getCredits());
-    setRole(storage.getRole());
-    const userId = storage.getUserId();
-    if (userId) {
-      api.getProfile(userId).then((result) => {
-        const nextCredits = Number(result.profile.credits ?? 0);
-        const nextRole = result.profile.role || "user";
-        storage.setCredits(nextCredits);
-        storage.setRole(nextRole);
-        setCredits(nextCredits);
-        setRole(nextRole);
-      }).catch(() => {});
-      api.getStreak(userId).then((result) => {
-        storage.setStreak(result.streak);
-        setStreak(result.streak);
-      }).catch(() => {});
+    let cancelled = false;
+    function syncProfile() {
+      setName(storage.getUserName() || "Guest");
+      setGoal(storage.getGoal() || "Maintenance");
+      setStreak(storage.getStreak() || 0);
+      setCredits(storage.getCredits());
+      setRole(storage.getRole());
+      const userId = storage.getUserId();
+      if (userId) {
+        api.getProfile(userId).then((result) => {
+          if (cancelled) return;
+          const nextCredits = Number(result.profile.credits ?? 0);
+          const nextRole = result.profile.role || "user";
+          const nextName = result.profile.name || storage.getUserName() || "Guest";
+          const nextGoal = result.profile.goal || storage.getGoal() || "maintenance";
+          storage.setUserName(nextName);
+          storage.setGoal(nextGoal);
+          storage.setCredits(nextCredits);
+          storage.setRole(nextRole);
+          setName(nextName);
+          setGoal(nextGoal);
+          setCredits(nextCredits);
+          setRole(nextRole);
+        }).catch(() => {});
+        api.getStreak(userId).then((result) => {
+          if (cancelled) return;
+          storage.setStreak(result.streak);
+          setStreak(result.streak);
+        }).catch(() => {});
+      }
     }
+
+    syncProfile();
+    window.addEventListener("mpa-storage-change", syncProfile);
+    window.addEventListener("focus", syncProfile);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("mpa-storage-change", syncProfile);
+      window.removeEventListener("focus", syncProfile);
+    };
   }, [pathname]);
 
   const isActive = (to: string, exact?: boolean) => (exact ? pathname === to : pathname === to || pathname.startsWith(to + "/"));
@@ -126,9 +146,9 @@ export function AppSidebar() {
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between rounded-lg bg-primary-light px-2.5 py-1.5">
-            <span className="text-[11px] text-primary/80 font-medium">Streak</span>
+            <span className="text-[11px] text-primary/80 font-medium">Planning streak</span>
             <span className="text-[12px] text-primary font-semibold flex items-center gap-1">
-              <Flame className="size-3" /> {streak} days
+              <Flame className="size-3" /> {streak} {streak === 1 ? "week" : "weeks"}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between rounded-lg bg-muted px-2.5 py-1.5">

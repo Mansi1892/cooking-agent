@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Calendar, ArrowRight, Activity, Drumstick, Target, Clock } from "lucide-react";
+import { Calendar, ArrowRight, Activity, Drumstick, Layers3, Clock } from "lucide-react";
 import { api, safe, type HistoryItem } from "@/lib/api";
 import { storage } from "@/lib/storage";
 
@@ -14,7 +14,8 @@ function History() {
 
   useEffect(() => {
     const uid = storage.getUserId();
-    const load = uid ? safe(api.getHistory(uid), []) : Promise.resolve([]);
+    const timeout = new Promise<HistoryItem[]>((resolve) => window.setTimeout(() => resolve([]), 6000));
+    const load = uid ? Promise.race([safe(api.getHistory(uid), []), timeout]) : Promise.resolve([]);
     load.then(setItems).finally(() => setLoading(false));
   }, []);
 
@@ -23,7 +24,7 @@ function History() {
       <header>
         <div className="text-[11px] uppercase tracking-wider text-text-light font-medium">History</div>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">Your meal plan history</h1>
-        <p className="mt-1 text-sm text-text-secondary">A timeline of every weekly plan you've generated.</p>
+        <p className="mt-1 text-sm text-text-secondary">One entry per planning week. New versions in the same week are grouped together.</p>
       </header>
 
       {loading ? (
@@ -52,9 +53,9 @@ function History() {
                 <div>
                   <div className="flex items-center gap-2 text-xs text-text-light">
                     <Calendar className="size-3.5" />
-                    {new Date(it.created_at).toLocaleDateString(undefined, { weekday: "short", month: "long", day: "numeric", year: "numeric" })}
+                    {new Date(it.week_start || it.created_at).toLocaleDateString(undefined, { weekday: "short", month: "long", day: "numeric", year: "numeric" })}
                   </div>
-                  <h3 className="mt-1 text-base font-semibold">Week of {new Date(it.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</h3>
+                  <h3 className="mt-1 text-base font-semibold">Week of {new Date(it.week_start || it.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</h3>
                   <div className="mt-2 flex items-center gap-2">
                     <Badge status={it.status} />
                     <span className="text-[11px] text-text-light capitalize">Goal · {it.goal.replace("_", " ")}</span>
@@ -65,9 +66,9 @@ function History() {
                 </Link>
               </div>
               <div className="mt-4 grid grid-cols-3 gap-3">
-                <Stat icon={Activity} label="Avg Calories" value={`${it.avg_calories}`} />
-                <Stat icon={Drumstick} label="Protein" value={`${it.avg_protein}g`} />
-                <Stat icon={Target} label="Adherence" value={`${85 + (i % 10)}%`} />
+                <Stat icon={Activity} label="Avg Daily Calories" value={`${it.avg_calories} kcal`} />
+                <Stat icon={Drumstick} label="Avg Daily Protein" value={`${it.avg_protein}g`} />
+                <Stat icon={Layers3} label="Versions This Week" value={`${it.version_count || 1}`} />
               </div>
             </article>
           </li>

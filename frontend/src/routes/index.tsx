@@ -59,7 +59,7 @@ function Dashboard() {
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
             {greeting()}, {name} <span className="inline-block animate-pop-in">👋</span>
           </h1>
-          <p className="mt-1.5 text-text-secondary">Today's focus — stay consistent, you're on a {streak}-day streak.</p>
+          <p className="mt-1.5 text-text-secondary">Today's focus — stay consistent, you're on a {streak}-week planning streak.</p>
         </div>
         <Link to="/meal-plans" className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition shadow-soft">
           <Sparkles className="size-4" /> Generate Plan
@@ -68,11 +68,11 @@ function Dashboard() {
 
       {/* Metrics */}
       <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-        <MetricCard icon={Activity} tint="primary" label="Avg Calories" value={summary.avg_calories.toLocaleString()} unit="kcal" delta="+2.1%" />
-        <MetricCard icon={Drumstick} tint="accent" label="Protein" value={`${summary.avg_protein}g`} delta="+8g" />
+        <MetricCard icon={Activity} tint="primary" label="Avg Daily Calories" value={summary.avg_calories.toLocaleString()} unit="kcal" delta="+2.1%" />
+        <MetricCard icon={Drumstick} tint="accent" label="Avg Daily Protein" value={`${summary.avg_protein}g`} delta="+8g" />
         <MetricCard icon={Wallet} tint="warning" label="Est. Grocery Cost" value={`₹${summary.total_budget.toLocaleString()}`} />
         <MetricCard icon={Heart} tint="success" label="Healthy Score" value={`${summary.healthy_score}`} unit="/100" delta="+4" deltaPositive />
-        <MetricCard icon={Flame} tint="error" label="Streak" value={`${streak}`} unit="days" />
+        <MetricCard icon={Flame} tint="error" label="Planning Streak" value={`${streak}`} unit={streak === 1 ? "week" : "weeks"} />
       </section>
 
       {/* Hero AI Card */}
