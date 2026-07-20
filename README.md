@@ -18,6 +18,8 @@ The current login is a local/demo login stored in browser localStorage. It gates
 - Goals: weight loss, muscle gain, maintenance
 - Dietary preferences: vegetarian, eggetarian, vegan, non-vegetarian, pescatarian, keto
 - AI-generated 7-day meal plans with backend summary validation for calories, protein, budget, and variety
+- 3 free meal-plan generation credits for every new user
+- Admin credit manager for adding credits after free generations are used
 - Diet-aware plan generation prompts and diet-aware frontend fallback data
 - Approved-only recipe buttons in the browser; recipes are generated on demand from online recipe context and AI
 - Auto-refresh on the Meal Plans page while a plan is pending so Telegram approval unlocks recipes without manual reload
@@ -53,6 +55,7 @@ cooking-agent/
 ├── requirements.txt               # Python dependencies
 └── frontend/
     ├── src/routes/login.tsx       # Local demo login
+    ├── src/routes/admin.tsx       # Admin credit manager
     ├── src/routes/onboarding.tsx  # Profile and family onboarding
     ├── src/routes/meal-plans.tsx
     ├── src/routes/grocery.tsx
@@ -72,6 +75,7 @@ SUPABASE_KEY=your_supabase_service_role_key
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 TAVILY_API_KEY=your_tavily_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+ADMIN_PASSWORD=change_this_admin_password
 ```
 
 Do not commit real secrets.
@@ -126,10 +130,36 @@ http://127.0.0.1:8080/
 3. Login/signup stores a local session.
 4. If no backend `user_id` exists yet, user is sent to `/onboarding`.
 5. Onboarding saves the user/family profile through the backend.
-6. Meal plans are generated and saved using the backend `user_id`.
-7. Pending plans are sent to Telegram if a numeric chat ID is saved.
-8. Approving a plan in Telegram updates Supabase; the browser auto-refreshes and unlocks recipe buttons.
-9. Grocery/history views read the saved plan data or use diet-aware demo fallback data if the backend is unreachable.
+6. New users start with 3 free meal-plan credits.
+7. Meal plans are generated and saved using the backend `user_id`; each successful fresh generation uses 1 credit.
+8. Pending plans are sent to Telegram if a numeric chat ID is saved.
+9. Approving a plan in Telegram updates Supabase; the browser auto-refreshes and unlocks recipe buttons.
+10. Grocery/history views read the saved plan data or use diet-aware demo fallback data if the backend is unreachable.
+
+Telegram rejection/regeneration is treated as part of the same pending plan review and does not consume another credit.
+
+## Credit/Admin Setup
+
+Run this once in Supabase SQL Editor:
+
+```sql
+-- see supabase_credit_setup.sql
+```
+
+The setup adds:
+
+- `users.credits integer default 3`
+- `users.role text default 'user'`
+
+To create the first admin profile, edit `supabase_credit_setup.sql` and replace `11` with the backend user id that should become admin:
+
+```sql
+update public.users
+set role = 'admin'
+where id = 11;
+```
+
+Admin users open `/admin`, enter the backend admin user ID and `ADMIN_PASSWORD`, then can view users and add meal-plan credits. If `ADMIN_PASSWORD` is not set locally, the backend uses `admin123` for development only.
 
 ## Telegram Flow
 
@@ -163,6 +193,12 @@ Recipe generation is intentionally browser-only. Meal cards show a `Recipe` butt
 - `GET /api/health`
 - `POST /onboard`
 - `POST /api/onboard`
+- `GET /profile/{user_id}`
+- `GET /api/profile/{user_id}`
+- `GET /admin/users?admin_user_id={admin_user_id}`
+- `GET /api/admin/users?admin_user_id={admin_user_id}`
+- `POST /admin/credits`
+- `POST /api/admin/credits`
 - `POST /plan/generate/{user_id}`
 - `POST /api/plan/generate/{user_id}`
 - `GET /plan/latest/{user_id}`

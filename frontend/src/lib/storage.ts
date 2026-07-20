@@ -9,6 +9,8 @@ const KEYS = {
   streak: "mpa_streak",
   profile: "mpa_profile",
   lastPlanId: "mpa_last_plan_id",
+  credits: "mpa_credits",
+  role: "mpa_role",
 } as const;
 
 function read(key: string): string | null {
@@ -51,6 +53,13 @@ export const storage = {
   setProfile: (data: any) => write(KEYS.profile, JSON.stringify(data)),
   getLastPlanId: () => read(KEYS.lastPlanId),
   setLastPlanId: (v: string) => write(KEYS.lastPlanId, v),
+  getCredits: () => {
+    const value = read(KEYS.credits);
+    return value == null ? 3 : Number(value || "0");
+  },
+  setCredits: (n: number) => write(KEYS.credits, String(n)),
+  getRole: () => read(KEYS.role) || "user",
+  setRole: (v: string) => write(KEYS.role, v),
   resetProfile: () => {
     [
       KEYS.userId,
@@ -60,6 +69,8 @@ export const storage = {
       KEYS.streak,
       KEYS.profile,
       KEYS.lastPlanId,
+      KEYS.credits,
+      KEYS.role,
     ].forEach((k) => write(k, null));
   },
   clearAll: () => Object.values(KEYS).forEach((k) => write(k, null)),

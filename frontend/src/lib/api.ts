@@ -72,6 +72,27 @@ export type MealPlan = {
   }>;
 };
 
+export type UserProfile = OnboardPayload & {
+  id: string;
+  role?: "user" | "admin" | string;
+  credits?: number;
+  budget_weekly?: number;
+  telegram_id?: string;
+  dietary_type?: string;
+  created_at?: string;
+};
+
+export type AdminUser = {
+  id: string;
+  name: string;
+  goal: string;
+  telegram_id?: string;
+  budget_weekly?: number;
+  credits: number;
+  role: string;
+  created_at?: string;
+};
+
 export type HistoryItem = {
   plan_id: string;
   created_at: string;
@@ -99,15 +120,22 @@ export type Recipe = {
 
 export const api = {
   health: () => request<{ status: string }>("/health"),
-  onboard: (data: OnboardPayload) => request<{ user_id: string }>("/onboard", { method: "POST", body: JSON.stringify(data) }),
+  onboard: (data: OnboardPayload) => request<{ user_id: string; credits?: number; role?: string }>("/onboard", { method: "POST", body: JSON.stringify(data) }),
+  getProfile: (userId: string) => request<{ profile: UserProfile }>(`/profile/${userId}`),
   updateProfile: (userId: string, data: OnboardPayload) => request<{ profile: any }>(`/profile/${userId}`, { method: "PUT", body: JSON.stringify(data) }),
-  generatePlan: (userId: string) => request<MealPlan | { plan: MealPlan; telegram_sent?: boolean; telegram_queued?: boolean; telegram_error?: string }>(`/plan/generate/${userId}`, { method: "POST" }),
+  generatePlan: (userId: string) => request<MealPlan | { plan: MealPlan; telegram_sent?: boolean; telegram_queued?: boolean; telegram_error?: string; credits_remaining?: number; credits_unlimited?: boolean }>(`/plan/generate/${userId}`, { method: "POST" }),
   getLatestPlan: (userId: string) => request<{ plan: MealPlan }>(`/plan/latest/${userId}`),
   getStreak: (userId: string) => request<{ streak: number }>(`/streak/${userId}`),
+  adminLogin: (payload: { admin_user_id: string; admin_password: string }) => request<{ admin: { id: string; name: string; role: string } }>("/admin/login", { method: "POST", body: JSON.stringify(payload) }),
+  getAdminUsers: (adminUserId: string, adminPassword: string) => request<{ users: AdminUser[] }>(`/admin/users?admin_user_id=${encodeURIComponent(adminUserId)}&admin_password=${encodeURIComponent(adminPassword)}`),
+  addCredits: (payload: { admin_user_id: string; admin_password: string; user_id: string; amount: number }) => request<{ profile: UserProfile; credits: number }>("/admin/credits", { method: "POST", body: JSON.stringify(payload) }),
   generateRecipe: (payload: { user_id: string; meal_name: string; meal_type?: string }) => request<{ recipe: Recipe }>("/recipe/generate", { method: "POST", body: JSON.stringify(payload) }),
   testTelegram: (userId: string) => request<{ sent: boolean }>(`/telegram/test/${userId}`, { method: "POST" }),
   getPlan: (planId: string) => request<MealPlan>(`/plan/${planId}`),
-  getHistory: (userId: string) => request<HistoryItem[]>(`/history/${userId}`),
+  getHistory: async (userId: string) => {
+    const response = await request<HistoryItem[] | { history: HistoryItem[] }>(`/history/${userId}`);
+    return Array.isArray(response) ? response : response.history || [];
+  },
   getGrocery: (planId: string) => request<GroceryGroup[]>(`/grocery/${planId}`),
   feedback: (payload: any) => request<{ ok: boolean }>("/feedback", { method: "POST", body: JSON.stringify(payload) }),
 };

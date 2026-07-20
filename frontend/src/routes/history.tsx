@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Calendar, ArrowRight, Activity, Drumstick, Target } from "lucide-react";
-import { api, mock, safe, type HistoryItem } from "@/lib/api";
+import { Calendar, ArrowRight, Activity, Drumstick, Target, Clock } from "lucide-react";
+import { api, safe, type HistoryItem } from "@/lib/api";
 import { storage } from "@/lib/storage";
 
 export const Route = createFileRoute("/history")({
@@ -10,11 +10,12 @@ export const Route = createFileRoute("/history")({
 
 function History() {
   const [items, setItems] = useState<HistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const uid = storage.getUserId();
-    if (uid) safe(api.getHistory(uid), mock.history()).then(setItems);
-    else setItems(mock.history());
+    const load = uid ? safe(api.getHistory(uid), []) : Promise.resolve([]);
+    load.then(setItems).finally(() => setLoading(false));
   }, []);
 
   return (
@@ -25,6 +26,23 @@ function History() {
         <p className="mt-1 text-sm text-text-secondary">A timeline of every weekly plan you've generated.</p>
       </header>
 
+      {loading ? (
+        <div className="rounded-xl border border-border bg-surface shadow-soft p-6 text-sm text-text-secondary">
+          Loading history...
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-xl border border-border bg-surface shadow-soft p-6">
+          <div className="flex items-start gap-3">
+            <div className="size-10 rounded-lg bg-muted grid place-items-center text-text-secondary">
+              <Clock className="size-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">No meal plans yet</h2>
+              <p className="mt-1 text-sm text-text-secondary">Generate and save a meal plan to see it here.</p>
+            </div>
+          </div>
+        </div>
+      ) : (
       <ol className="relative border-l border-border ml-3 space-y-5">
         {items.map((it, i) => (
           <li key={it.plan_id} className="pl-6 relative">
@@ -55,6 +73,7 @@ function History() {
           </li>
         ))}
       </ol>
+      )}
     </div>
   );
 }

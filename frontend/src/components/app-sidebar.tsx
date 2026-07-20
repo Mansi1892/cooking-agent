@@ -9,6 +9,8 @@ import {
   Sparkles,
   Flame,
   LogOut,
+  ShieldCheck,
+  Coins,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -29,13 +31,25 @@ export function AppSidebar() {
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [streak, setStreak] = useState(0);
+  const [credits, setCredits] = useState(0);
+  const [role, setRole] = useState("user");
 
   useEffect(() => {
     setName(storage.getUserName() || "Guest");
     setGoal(storage.getGoal() || "Maintenance");
     setStreak(storage.getStreak() || 0);
+    setCredits(storage.getCredits());
+    setRole(storage.getRole());
     const userId = storage.getUserId();
     if (userId) {
+      api.getProfile(userId).then((result) => {
+        const nextCredits = Number(result.profile.credits ?? 0);
+        const nextRole = result.profile.role || "user";
+        storage.setCredits(nextCredits);
+        storage.setRole(nextRole);
+        setCredits(nextCredits);
+        setRole(nextRole);
+      }).catch(() => {});
       api.getStreak(userId).then((result) => {
         storage.setStreak(result.streak);
         setStreak(result.streak);
@@ -83,6 +97,21 @@ export function AppSidebar() {
             </Link>
           );
         })}
+        {role === "admin" && (
+          <Link
+            to="/admin"
+            className={[
+              "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200",
+              isActive("/admin")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                : "text-text-secondary hover:bg-sidebar-accent/60 hover:text-text-primary",
+            ].join(" ")}
+          >
+            <ShieldCheck className={"size-4 " + (isActive("/admin") ? "text-primary" : "text-text-light group-hover:text-text-secondary")} />
+            <span>Admin</span>
+            {isActive("/admin") && <span className="ml-auto size-1.5 rounded-full bg-primary" />}
+          </Link>
+        )}
       </nav>
 
       <div className="p-3">
@@ -100,6 +129,12 @@ export function AppSidebar() {
             <span className="text-[11px] text-primary/80 font-medium">Streak</span>
             <span className="text-[12px] text-primary font-semibold flex items-center gap-1">
               <Flame className="size-3" /> {streak} days
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between rounded-lg bg-muted px-2.5 py-1.5">
+            <span className="text-[11px] text-text-secondary font-medium">Credits</span>
+            <span className="text-[12px] text-text-primary font-semibold flex items-center gap-1">
+              <Coins className="size-3" /> {role === "admin" ? "Unlimited" : credits}
             </span>
           </div>
           <button

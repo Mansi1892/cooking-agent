@@ -6,6 +6,7 @@ from supabase import create_client
 
 load_dotenv()
 
+FREE_PLAN_CREDITS = 3
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -26,6 +27,8 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         "goal": goal,
         "telegram_id": telegram_id,
         "budget_weekly": budget_weekly,
+        "credits": FREE_PLAN_CREDITS,
+        "role": "user",
     }
 
     if dietary_type:
@@ -51,7 +54,10 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         return user_record
     except Exception as exc:
         print(f"⚠️ Error creating user: {exc}")
-        fallback_payload = {k: v for k, v in payload.items() if k not in {"dietary_type", "dietary_preferences", "allergies", "preferences"}}
+        fallback_payload = {
+            k: v for k, v in payload.items()
+            if k not in {"dietary_type", "dietary_preferences", "allergies", "preferences", "credits", "role"}
+        }
         try:
             result = supabase.table("users").insert(fallback_payload).select("*").execute()
             user_record = result.data[0] if result.data else {}
@@ -104,6 +110,8 @@ def update_user(user_id, updates):
         "dietary_preferences",
         "allergies",
         "preferences",
+        "credits",
+        "role",
     }
     payload = {key: value for key, value in (updates or {}).items() if key in allowed}
     if not payload:
@@ -120,6 +128,67 @@ def update_user(user_id, updates):
     except Exception as exc:
         print(f"⚠️ Error updating user {user_id}: {exc}")
         return {}
+
+
+def get_user_credits(user):
+    try:
+        return int(user.get("credits", FREE_PLAN_CREDITS))
+    except (TypeError, ValueError):
+        return FREE_PLAN_CREDITS
+
+
+def consume_user_credit(user_id):
+    user = get_user(user_id)
+    credits = get_user_credits(user)
+    if credits <= 0:
+        return {"ok": False, "credits": credits, "error": "No meal plan credits remaining."}
+
+    try:
+        result = (
+            supabase.table("users")
+            .update({"credits": credits - 1})
+            .eq("id", user_id)
+            .select("*")
+            .execute()
+        )
+        updated = result.data[0] if result.data else {}
+        return {"ok": True, "credits": get_user_credits(updated)}
+    except Exception as exc:
+        print(f"⚠️ Error consuming credit for user {user_id}: {exc}")
+        return {"ok": False, "credits": credits, "error": "Credits column is not configured in Supabase."}
+
+
+def add_user_credits(user_id, amount):
+    user = get_user(user_id)
+    if not user:
+        return {}
+    credits = get_user_credits(user)
+    try:
+        result = (
+            supabase.table("users")
+            .update({"credits": credits + int(amount)})
+            .eq("id", user_id)
+            .select("*")
+            .execute()
+        )
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error adding credits for user {user_id}: {exc}")
+        return {}
+
+
+def list_users():
+    try:
+        result = (
+            supabase.table("users")
+            .select("id,name,goal,telegram_id,budget_weekly,credits,role,created_at")
+            .order("id", desc=True)
+            .execute()
+        )
+        return result.data or []
+    except Exception as exc:
+        print(f"⚠️ Error listing users: {exc}")
+        return []
 
 
 def add_family_member(user_id, name, age, dietary_type, allergies, preferences, telegram=""):

@@ -14,6 +14,10 @@ from database import (
     save_feedback,
     get_user_history,
     update_user,
+    get_user_credits,
+    consume_user_credit,
+    add_user_credits,
+    list_users,
 )
 from agent import generate_meal_plan
 from tools import openai_client, tavily_search
@@ -96,6 +100,18 @@ class RecipeRequest(BaseModel):
     meal_name: str
     meal_type: Optional[str] = None
     servings: Optional[int] = None
+
+
+class CreditGrantRequest(BaseModel):
+    admin_user_id: str
+    admin_password: str
+    user_id: str
+    amount: int = Field(default=1, ge=1, le=100)
+
+
+class AdminLoginRequest(BaseModel):
+    admin_user_id: str
+    admin_password: str
 
 
 async def send_plan_to_telegram_background(telegram_id: str, generated_plan: dict) -> None:
@@ -310,12 +326,29 @@ async def onboard(payload: OnboardingRequest):
         "user_id": user["id"],
         "message": confirmation,
         "family_members_added": family_count,
+        "credits": get_user_credits(user),
+        "role": user.get("role") or "user",
     }
 
 
 @app.post("/api/onboard")
 async def api_onboard(payload: OnboardingRequest):
     return await onboard(payload)
+
+
+@app.get("/profile/{user_id}")
+async def get_profile(user_id: str):
+    user = get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user["credits"] = get_user_credits(user)
+    user["role"] = user.get("role") or "user"
+    return {"profile": user}
+
+
+@app.get("/api/profile/{user_id}")
+async def api_get_profile(user_id: str):
+    return await get_profile(user_id)
 
 
 @app.put("/profile/{user_id}")
@@ -364,6 +397,73 @@ async def update_profile(user_id: str, payload: UserProfile):
 @app.put("/api/profile/{user_id}")
 async def api_update_profile(user_id: str, payload: UserProfile):
     return await update_profile(user_id, payload)
+
+
+def require_admin(admin_user_id: str, admin_password: str):
+    expected_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    if not admin_password or admin_password != expected_password:
+        raise HTTPException(status_code=401, detail="Invalid admin password")
+    admin = get_user(admin_user_id)
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin profile not found")
+    if (admin.get("role") or "user") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return admin
+
+
+@app.post("/admin/login")
+async def admin_login(payload: AdminLoginRequest):
+    admin = require_admin(payload.admin_user_id, payload.admin_password)
+    return {
+        "admin": {
+            "id": str(admin.get("id") or ""),
+            "name": admin.get("name") or "Admin",
+            "role": admin.get("role") or "admin",
+        }
+    }
+
+
+@app.post("/api/admin/login")
+async def api_admin_login(payload: AdminLoginRequest):
+    return await admin_login(payload)
+
+
+@app.get("/admin/users")
+async def admin_users(admin_user_id: str, admin_password: str):
+    require_admin(admin_user_id, admin_password)
+    users = list_users()
+    normalized = []
+    for user in users:
+        normalized.append({
+            "id": str(user.get("id") or ""),
+            "name": user.get("name") or "Unnamed",
+            "goal": user.get("goal") or "maintenance",
+            "telegram_id": user.get("telegram_id") or "",
+            "budget_weekly": parse_budget(user.get("budget_weekly")),
+            "credits": get_user_credits(user),
+            "role": user.get("role") or "user",
+            "created_at": user.get("created_at") or "",
+        })
+    return {"users": normalized}
+
+
+@app.get("/api/admin/users")
+async def api_admin_users(admin_user_id: str, admin_password: str):
+    return await admin_users(admin_user_id, admin_password)
+
+
+@app.post("/admin/credits")
+async def admin_add_credits(payload: CreditGrantRequest):
+    require_admin(payload.admin_user_id, payload.admin_password)
+    updated = add_user_credits(payload.user_id, payload.amount)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Unable to add credits. Check Supabase credits column.")
+    return {"profile": updated, "credits": get_user_credits(updated)}
+
+
+@app.post("/api/admin/credits")
+async def api_admin_add_credits(payload: CreditGrantRequest):
+    return await admin_add_credits(payload)
 
 
 def parse_budget(value) -> float:
@@ -481,6 +581,19 @@ def format_saved_plan_for_ui(plan: dict, user: dict) -> dict:
     }
 
 
+def format_history_item(plan: dict, user: dict) -> dict:
+    formatted = format_saved_plan_for_ui(plan, user)
+    summary = formatted.get("week_summary") or {}
+    return {
+        "plan_id": formatted.get("id") or str(plan.get("id") or ""),
+        "created_at": formatted.get("created_at") or datetime.utcnow().isoformat(),
+        "status": formatted.get("status") or "ready",
+        "goal": user.get("goal") or "maintenance",
+        "avg_calories": summary.get("avg_calories") or 0,
+        "avg_protein": summary.get("avg_protein") or 0,
+    }
+
+
 def calculate_plan_streak(history: list) -> int:
     week_starts = set()
     for plan in history or []:
@@ -525,19 +638,29 @@ async def plan_generate(user_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="User not found")
     if parse_budget(user.get("budget_weekly")) < 1500:
         raise HTTPException(status_code=400, detail="Weekly meal budget is too low. Please update Profile with at least ₹1500.")
+    if "credits" not in user:
+        raise HTTPException(status_code=500, detail="Credits are not configured yet. Run supabase_credit_setup.sql in Supabase.")
+    is_admin = (user.get("role") or "user") == "admin"
+    if not is_admin and get_user_credits(user) <= 0:
+        raise HTTPException(status_code=402, detail="You have used your 3 free meal plan credits. Please ask admin to add more credits.")
 
     GENERATING_USERS.add(user_id)
     try:
         generated_plan = generate_meal_plan(int(user_id))
         if not generated_plan:
             raise HTTPException(status_code=500, detail="Plan generation failed")
+        credit_result = {"ok": True, "credits": get_user_credits(user), "unlimited": True} if is_admin else consume_user_credit(user_id)
+        if not credit_result.get("ok"):
+            raise HTTPException(status_code=500, detail=credit_result.get("error") or "Unable to consume meal plan credit.")
         plan = format_plan_for_ui(generated_plan, user)
+        plan["credits_remaining"] = credit_result.get("credits", 0)
+        plan["credits_unlimited"] = is_admin
 
         telegram_id = str(user.get("telegram_id") or "").strip()
         if telegram_id:
             background_tasks.add_task(send_plan_to_telegram_background, telegram_id, generated_plan)
 
-        return {"plan": plan, "telegram_queued": bool(telegram_id)}
+        return {"plan": plan, "telegram_queued": bool(telegram_id), "credits_remaining": credit_result.get("credits", 0), "credits_unlimited": is_admin}
     finally:
         GENERATING_USERS.discard(user_id)
 
@@ -653,8 +776,11 @@ async def api_feedback(payload: FeedbackRequest):
 
 @app.get("/history/{user_id}")
 async def history(user_id: str):
+    user = get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     hist = get_user_history(user_id)
-    return {"history": hist}
+    return {"history": [format_history_item(plan, user) for plan in hist]}
 
 
 @app.get("/api/history/{user_id}")

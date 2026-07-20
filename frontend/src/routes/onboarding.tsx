@@ -61,8 +61,12 @@ function Onboarding() {
       try {
         const r = await api.onboard(form);
         if (r?.user_id) id = r.user_id;
+        storage.setCredits(typeof r?.credits === "number" ? r.credits : 3);
+        storage.setRole(r?.role || "user");
       } catch {
         toast.message("Using demo mode", { description: "Backend unreachable — generated a local demo profile." });
+        storage.setCredits(3);
+        storage.setRole("user");
       }
       setUserId(id);
       storage.setAuthUser(storage.getAuthUser() || {
