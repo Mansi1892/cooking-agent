@@ -27,6 +27,7 @@ function Profile() {
     const loadedProfile = storage.getProfile<OnboardPayload>() || {
       name: storage.getUserName() || "Guest",
       age: 28,
+      gender: "",
       weight: 70,
       height: 170,
       goal: "maintenance",
@@ -76,7 +77,7 @@ function Profile() {
   }
 
   function addFamily() {
-    update({ family: [...family, { name: "", diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
+    update({ family: [...family, { name: "", age: 28, goal: "maintenance", gender: "", weight: 60, height: 165, diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
   }
 
   function removeFamily(index: number) {
@@ -172,6 +173,7 @@ function Profile() {
             <h2 className="text-sm font-semibold">Profile details</h2>
             <div className="mt-5 grid sm:grid-cols-2 gap-3">
               <Detail label="Goal" value={String(profile.goal).replace("_", " ")} />
+              <Detail label="Gender" value={profile.gender || "Not set"} />
               <Detail label="Dietary preference" value={profile.dietary_preference || "Vegetarian"} />
               <Detail label="Weekly meal budget" value={`₹${profile.weekly_budget}`} />
               <Detail label="Telegram chat ID" value={profile.telegram || "Not added"} />
@@ -187,8 +189,11 @@ function Profile() {
               {family.map((member, index) => (
                 <div key={index} className="rounded-xl border border-border p-4">
                   <div className="font-medium">{member.name || `Family member ${index + 1}`}</div>
-                  <div className="mt-1 text-sm text-text-secondary capitalize">{member.diet || "Vegetarian"}</div>
-                  <div className="mt-3 grid sm:grid-cols-3 gap-3">
+                  <div className="mt-1 text-sm text-text-secondary capitalize">
+                    {member.goal?.replace("_", " ") || "maintenance"} · {member.diet || "Vegetarian"}
+                  </div>
+                  <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <Detail label="Stats" value={`${member.gender || "Not set"} · ${member.age || "-"}y · ${(member.weight ?? member.weight_kg) || "-"}kg · ${(member.height ?? member.height_cm) || "-"}cm`} compact />
                     <Detail label="Allergies" value={(member.allergies ?? []).join(", ") || "None"} compact />
                     <Detail label="Preferences" value={(member.preferences ?? []).join(", ") || "None"} compact />
                     <Detail label="Telegram" value={member.telegram || "Not added"} compact />
@@ -221,6 +226,14 @@ function Profile() {
           <Field label="Age">
             <input type="number" className={input()} value={profile.age || ""} onChange={(e) => update({ age: cleanNumber(e.target.value) })} />
             {errors.age && <ErrorText>{errors.age}</ErrorText>}
+          </Field>
+          <Field label="Gender">
+            <select className={input()} value={profile.gender ?? ""} onChange={(e) => update({ gender: e.target.value })}>
+              <option value="">Prefer not to say</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other</option>
+            </select>
           </Field>
           <Field label="Weight (kg)">
             <input type="number" className={input()} value={profile.weight || ""} onChange={(e) => update({ weight: cleanNumber(e.target.value) })} />
@@ -278,6 +291,30 @@ function Profile() {
                       {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
                     </select>
                   </Field>
+                  <Field label="Goal">
+                    <select className={input()} value={member.goal ?? "maintenance"} onChange={(e) => patchFamily(index, { goal: e.target.value as FamilyMember["goal"] })}>
+                      <option value="weight_loss">Weight Loss</option>
+                      <option value="muscle_gain">Muscle Gain</option>
+                      <option value="maintenance">Maintenance</option>
+                    </select>
+                  </Field>
+                  <Field label="Gender">
+                    <select className={input()} value={member.gender ?? ""} onChange={(e) => patchFamily(index, { gender: e.target.value })}>
+                      <option value="">Prefer not to say</option>
+                      <option value="female">Female</option>
+                      <option value="male">Male</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </Field>
+                  <Field label="Age">
+                    <input className={input()} type="number" value={member.age ?? 0} onChange={(e) => patchFamily(index, { age: cleanNumber(e.target.value) })} />
+                  </Field>
+                  <Field label="Weight (kg)">
+                    <input className={input()} type="number" value={member.weight ?? member.weight_kg ?? 0} onChange={(e) => patchFamily(index, { weight: cleanNumber(e.target.value) })} />
+                  </Field>
+                  <Field label="Height (cm)">
+                    <input className={input()} type="number" value={member.height ?? member.height_cm ?? 0} onChange={(e) => patchFamily(index, { height: cleanNumber(e.target.value) })} />
+                  </Field>
                   <Field label="Allergies">
                     <input className={input()} value={(member.allergies ?? []).join(", ")} onChange={(e) => patchFamily(index, { allergies: splitList(e.target.value) })} />
                   </Field>
@@ -305,6 +342,7 @@ function normalizeProfile(raw: any): OnboardPayload {
     name: raw?.name || "",
     email: raw?.email || "",
     age: Number(raw?.age || 28),
+    gender: raw?.gender || "",
     weight: Number(raw?.weight ?? raw?.weight_kg ?? 70),
     height: Number(raw?.height ?? raw?.height_cm ?? 170),
     goal: raw?.goal || "maintenance",
@@ -313,7 +351,18 @@ function normalizeProfile(raw: any): OnboardPayload {
     dietary_preference: raw?.dietary_preference ?? raw?.dietary_type ?? "Vegetarian",
     allergies: raw?.allergies || [],
     preferences: raw?.preferences || [],
-    family: raw?.family || [],
+    family: (raw?.family || []).map((member: any) => ({
+      name: member.name || "",
+      age: Number(member.age || 0),
+      goal: member.goal || "maintenance",
+      gender: member.gender || "",
+      weight: Number(member.weight ?? member.weight_kg ?? 0),
+      height: Number(member.height ?? member.height_cm ?? 0),
+      diet: member.diet ?? member.dietary_type ?? "Vegetarian",
+      allergies: member.allergies || [],
+      preferences: member.preferences || [],
+      telegram: member.telegram || "",
+    })),
   };
 }
 
@@ -347,6 +396,12 @@ function validateFamily(family: FamilyMember[]) {
   family.forEach((member, index) => {
     if (!member.name?.trim()) errors[index] = "Family member name is required. Delete this row if you do not want to add them.";
     if (!member.diet) errors[index] = "Dietary preference is required.";
+    if (!member.goal) errors[index] = "Goal is required for each family member.";
+    if (member.age && (member.age < 1 || member.age > 120)) errors[index] = "Enter a valid age for each family member.";
+    const weight = Number(member.weight ?? member.weight_kg ?? 0);
+    const height = Number(member.height ?? member.height_cm ?? 0);
+    if (weight && (weight < 20 || weight > 300)) errors[index] = "Enter a valid weight for each family member.";
+    if (height && (height < 80 || height > 250)) errors[index] = "Enter a valid height for each family member.";
   });
   return errors;
 }

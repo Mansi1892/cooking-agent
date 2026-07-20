@@ -93,6 +93,10 @@ def normalize_family_member(member: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "name": member.get("name", "Family Member"),
         "age": member.get("age", 0),
+        "goal": member.get("goal") or "maintenance",
+        "gender": member.get("gender") or member.get("sex") or "",
+        "weight_kg": member.get("weight_kg") or member.get("weight") or 0,
+        "height_cm": member.get("height_cm") or member.get("height") or 0,
         "dietary_type": dietary_type,
         "allergies": allergies,
         "preferences": preferences,

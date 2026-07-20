@@ -14,6 +14,9 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 - Planning streak is counted in weeks, not days.
 - Calories and protein shown in summaries are daily averages across the 7-day plan.
 - Recent saved meals are passed to the AI as meals to avoid so the next week is not the same menu.
+- The Meal Plans page can show one tab per person in the household.
+- Each person tab has its own daily calorie/protein target and portion note based on goal, gender, age, weight, height, diet, allergies, and preferences.
+- The household still keeps one shared grocery list.
 
 ## User Flow
 
@@ -48,6 +51,7 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 ## Data Notes
 
 - Supabase stores users, family members, meal plans, day meals, grocery data, feedback, and credit requests.
+- `supabase_family_personalization.sql` adds gender/goal/body-stat fields needed for richer per-person family planning.
 - Email should be unique for non-blank user records.
 - Old duplicate/null-email test users should be cleaned before enforcing the unique email index.
 - User credits should not reset during profile reset/edit flows.

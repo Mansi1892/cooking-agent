@@ -15,6 +15,7 @@ The current login is a local browser session backed by a Supabase user profile l
 
 - Local login/signup screen before onboarding, with email-based profile restore
 - Onboarding for personal profile, family members, goals, budget, allergies, preferences, and Telegram chat ID
+- Family member personalization: each person can have their own goal, gender, age, weight, height, diet, allergies, and preferences
 - Goals: weight loss, muscle gain, maintenance
 - Dietary preferences: vegetarian, eggetarian, vegan, non-vegetarian, pescatarian, keto
 - AI-generated 7-day meal plans with backend summary validation for calories, protein, budget, and variety
@@ -22,6 +23,7 @@ The current login is a local browser session backed by a Supabase user profile l
 - Weekly history is grouped by Monday-Sunday planning week, so regenerations in the same week do not create duplicate history cards
 - Meal-plan summaries show average daily calories and average daily protein, not weekly totals
 - Recent saved meals are passed back into the AI prompt so the next weekly menu avoids repeating the same dishes
+- Meal Plans can show person tabs for the main user and family members, with per-person calorie/protein targets and portion notes
 - 3 free meal-plan generation credits for every new user
 - Request-based admin credit manager for adding credits after free generations are used
 - Diet-aware plan generation prompts
@@ -251,6 +253,33 @@ Credits are request-based:
 5. Admin grants credits from that request list.
 
 The backend still exposes manual admin credit endpoints for API compatibility, but the frontend uses the request workflow.
+
+## Family Personalization Setup
+
+Run this once in Supabase SQL Editor:
+
+```sql
+-- see supabase_family_personalization.sql
+```
+
+The setup adds:
+
+- `users.gender`
+- `family_members.goal`
+- `family_members.gender`
+- `family_members.weight_kg`
+- `family_members.height_cm`
+
+The app has fallback handling if these columns are not present yet, but production personalization works best after running the migration.
+
+Family meal planning rules:
+
+- The household still receives one shared grocery list.
+- The Meal Plans page shows tabs for each person.
+- Each person tab uses that person's goal, gender, age, weight, height, diet, allergies, and preferences.
+- People with compatible goals/diets can share the same meal base with different portions.
+- People with different goals receive different calorie/protein targets and portion notes.
+- Future improvement: persist every person/day plan in a dedicated table for deeper per-person regenerate history.
 
 ## Telegram Flow
 

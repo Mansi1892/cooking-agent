@@ -29,6 +29,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export type FamilyMember = {
   name: string;
   age?: number;
+  goal?: "weight_loss" | "muscle_gain" | "maintenance";
+  gender?: string;
+  weight?: number;
+  height?: number;
+  weight_kg?: number;
+  height_cm?: number;
   diet?: string;
   allergies?: string[];
   preferences?: string[];
@@ -39,6 +45,7 @@ export type OnboardPayload = {
   name: string;
   email?: string;
   age: number;
+  gender?: string;
   weight: number;
   height: number;
   goal: "weight_loss" | "muscle_gain" | "maintenance";
@@ -66,6 +73,7 @@ export type MealPlan = {
     calories: number;
     protein: number;
     status?: string;
+    portion_note?: string;
     meals: Array<{
       type: string;
       name: string;
@@ -73,6 +81,16 @@ export type MealPlan = {
       protein: number;
       prep_time?: number;
     }>;
+  }>;
+  people_plans?: Array<{
+    person_id: string;
+    name: string;
+    goal: string;
+    gender?: string;
+    dietary_type?: string;
+    target_calories: number;
+    target_protein: number;
+    days: MealPlan["days"];
   }>;
 };
 

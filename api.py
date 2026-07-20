@@ -12,6 +12,8 @@ from database import (
     get_user,
     get_user_by_email,
     add_family_member,
+    replace_family_members,
+    get_family_members,
     get_latest_plan,
     get_meal_plan,
     save_feedback,
@@ -27,7 +29,7 @@ from database import (
     update_credit_request,
     update_plan_status,
 )
-from agent import generate_meal_plan
+from agent import attach_people_plans, generate_meal_plan
 from tools import openai_client, tavily_search
 from onboarding_utils import normalize_dietary_type, normalize_family_member
 
@@ -50,6 +52,7 @@ class UserProfile(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     age: Optional[int] = None
+    gender: Optional[str] = None
     weight: Optional[float] = None
     height: Optional[float] = None
     weight_kg: Optional[float] = None
@@ -68,6 +71,12 @@ class UserProfile(BaseModel):
 class FamilyMember(BaseModel):
     name: Optional[str] = None
     age: Optional[int] = None
+    goal: Optional[str] = "maintenance"
+    gender: Optional[str] = None
+    weight: Optional[float] = None
+    height: Optional[float] = None
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
     diet: Optional[str] = None
     dietary_type: Optional[str] = None
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
@@ -83,6 +92,7 @@ class OnboardingRequest(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     age: Optional[int] = None
+    gender: Optional[str] = None
     weight: Optional[float] = None
     height: Optional[float] = None
     weight_kg: Optional[float] = None
@@ -96,6 +106,10 @@ class OnboardingRequest(BaseModel):
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
     allergies: Optional[List[str]] = Field(default_factory=list)
     preferences: Optional[List[str]] = Field(default_factory=list)
+
+
+class ProfileUpdateRequest(UserProfile):
+    family: Optional[List[FamilyMember]] = Field(default_factory=list)
 
 
 class FeedbackRequest(BaseModel):
@@ -264,6 +278,7 @@ async def onboard(payload: OnboardingRequest):
     user_name = user_data.get("name") or "Unknown"
     email = str(user_data.get("email") or "").strip().lower()
     age = user_data.get("age") or 0
+    gender = user_data.get("gender") or ""
     weight_kg = user_data.get("weight_kg") or user_data.get("weight") or 0
     height_cm = user_data.get("height_cm") or user_data.get("height") or 0
     goal = user_data.get("goal") or "maintenance"
@@ -301,6 +316,7 @@ async def onboard(payload: OnboardingRequest):
         "name": user_name,
         "email": email,
         "age": age,
+        "gender": gender,
         "weight_kg": weight_kg,
         "height_cm": height_cm,
         "goal": goal,
@@ -319,6 +335,7 @@ async def onboard(payload: OnboardingRequest):
         name=user_name,
         email=email,
         age=age,
+        gender=gender,
         weight_kg=weight_kg,
         height_cm=height_cm,
         goal=goal,
@@ -347,6 +364,11 @@ async def onboard(payload: OnboardingRequest):
             dietary_type=member.get("dietary_type", "normal"),
             allergies=member.get("allergies", []),
             preferences=member.get("preferences", []),
+            telegram=member.get("telegram", ""),
+            goal=member.get("goal", "maintenance"),
+            gender=member.get("gender", ""),
+            weight_kg=member.get("weight_kg", 0),
+            height_cm=member.get("height_cm", 0),
         )
         if result and "id" in result:
             family_count += 1
@@ -355,6 +377,7 @@ async def onboard(payload: OnboardingRequest):
         "name": user_name,
         "email": email,
         "age": age,
+        "gender": gender,
         "weight_kg": weight_kg,
         "height_cm": height_cm,
         "goal": goal,
@@ -394,6 +417,7 @@ async def get_profile_by_email(email: str):
         raise HTTPException(status_code=404, detail="Account not found")
     user["credits"] = get_user_credits(user)
     user["role"] = user.get("role") or "user"
+    user["family"] = get_family_members(user.get("id"))
     return {"profile": user}
 
 
@@ -409,6 +433,7 @@ async def get_profile(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     user["credits"] = get_user_credits(user)
     user["role"] = user.get("role") or "user"
+    user["family"] = get_family_members(user_id)
     return {"profile": user}
 
 
@@ -418,7 +443,7 @@ async def api_get_profile(user_id: str):
 
 
 @app.put("/profile/{user_id}")
-async def update_profile(user_id: str, payload: UserProfile):
+async def update_profile(user_id: str, payload: ProfileUpdateRequest):
     existing = get_user(user_id)
     if not existing:
         raise HTTPException(status_code=404, detail="User not found")
@@ -444,6 +469,7 @@ async def update_profile(user_id: str, payload: UserProfile):
         "name": user_data.get("name", existing.get("name")),
         "email": user_data.get("email") or existing.get("email", ""),
         "age": user_data.get("age", existing.get("age")),
+        "gender": user_data.get("gender", existing.get("gender") or ""),
         "weight_kg": user_data.get("weight_kg") or user_data.get("weight") or existing.get("weight_kg"),
         "height_cm": user_data.get("height_cm") or user_data.get("height") or existing.get("height_cm"),
         "goal": user_data.get("goal", existing.get("goal")),
@@ -464,11 +490,18 @@ async def update_profile(user_id: str, payload: UserProfile):
     updated = update_user(user_id, updates)
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update profile")
+    normalized_family = [
+        normalize_family_member(member)
+        for member in (user_data.get("family") or [])
+        if str((member or {}).get("name") or "").strip()
+    ]
+    saved_family = replace_family_members(user_id, normalized_family)
+    updated["family"] = saved_family
     return {"profile": updated}
 
 
 @app.put("/api/profile/{user_id}")
-async def api_update_profile(user_id: str, payload: UserProfile):
+async def api_update_profile(user_id: str, payload: ProfileUpdateRequest):
     return await update_profile(user_id, payload)
 
 
@@ -653,6 +686,7 @@ def format_plan_for_ui(plan: dict, user: dict) -> dict:
         "budget_note": plan.get("budget_note", ""),
         "grocery_estimate": plan.get("grocery_estimate", {}),
         "shopping_list": plan.get("shopping_list", []),
+        "people_plans": plan.get("people_plans", []),
     }
 
 
@@ -704,6 +738,7 @@ def format_saved_plan_for_ui(plan: dict, user: dict) -> dict:
         "days": days,
         "goal_summary": "",
         "shopping_list": [],
+        "people_plans": attach_people_plans({"week_plan": day_rows}, user).get("people_plans", []),
     }
 
 

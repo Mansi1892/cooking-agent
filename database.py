@@ -18,11 +18,12 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None):
+def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None, gender=""):
     payload = {
         "name": name,
         "email": (email or "").strip().lower(),
         "age": age,
+        "gender": gender or "",
         "weight_kg": weight_kg,
         "height_cm": height_cm,
         "goal": goal,
@@ -55,7 +56,16 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         return user_record
     except Exception as exc:
         print(f"⚠️ Error creating user: {exc}")
-        return {}
+        fallback_payload = {k: v for k, v in payload.items() if k != "gender"}
+        try:
+            result = supabase.table("users").insert(fallback_payload).select("*").execute()
+            user_record = result.data[0] if result.data else {}
+            if gender and "gender" not in user_record:
+                user_record["gender"] = gender
+            return user_record
+        except Exception as exc2:
+            print(f"⚠️ Error creating user fallback: {exc2}")
+            return {}
 
 
 def get_user(user_id):
@@ -110,6 +120,7 @@ def update_user(user_id, updates):
         "weight_kg",
         "height_cm",
         "goal",
+        "gender",
         "telegram_id",
         "budget_weekly",
         "dietary_type",
@@ -133,6 +144,22 @@ def update_user(user_id, updates):
         return result.data[0] if result.data else {}
     except Exception as exc:
         print(f"⚠️ Error updating user {user_id}: {exc}")
+        if "gender" in payload:
+            fallback_payload = {k: v for k, v in payload.items() if k != "gender"}
+            try:
+                result = (
+                    supabase.table("users")
+                    .update(fallback_payload)
+                    .eq("id", user_id)
+                    .select("*")
+                    .execute()
+                )
+                updated = result.data[0] if result.data else {}
+                if updated:
+                    updated["gender"] = payload.get("gender")
+                return updated
+            except Exception as exc2:
+                print(f"⚠️ Error updating user fallback {user_id}: {exc2}")
         return {}
 
 
@@ -252,11 +279,27 @@ def list_users():
         return []
 
 
-def add_family_member(user_id, name, age, dietary_type, allergies, preferences, telegram=""):
+def add_family_member(
+    user_id,
+    name,
+    age,
+    dietary_type,
+    allergies,
+    preferences,
+    telegram="",
+    goal="maintenance",
+    gender="",
+    weight_kg=0,
+    height_cm=0,
+):
     payload = {
         "user_id": user_id,
         "name": name,
         "age": age,
+        "goal": goal or "maintenance",
+        "gender": gender or "",
+        "weight_kg": weight_kg or 0,
+        "height_cm": height_cm or 0,
         "dietary_type": dietary_type,
         "allergies": allergies or [],
         "preferences": preferences or [],
@@ -270,7 +313,11 @@ def add_family_member(user_id, name, age, dietary_type, allergies, preferences, 
         return result.data[0] if result.data else {}
     except Exception as exc:
         print(f"⚠️ Error adding family member: {exc}")
-        fallback_payload = {k: v for k, v in payload.items() if k != "telegram"}
+        fallback_payload = {
+            k: v
+            for k, v in payload.items()
+            if k not in {"telegram", "goal", "gender", "weight_kg", "height_cm"}
+        }
         try:
             result = supabase.table("family_members").insert(fallback_payload).select("*").execute()
             return result.data[0] if result.data else {}
@@ -286,6 +333,33 @@ def get_family_members(user_id):
     except Exception as exc:
         print(f"⚠️ Error fetching family members: {exc}")
         return []
+
+
+def replace_family_members(user_id, members):
+    try:
+        supabase.table("family_members").delete().eq("user_id", user_id).execute()
+    except Exception as exc:
+        print(f"⚠️ Error deleting old family members: {exc}")
+        return []
+
+    saved = []
+    for member in members or []:
+        result = add_family_member(
+            user_id=user_id,
+            name=member.get("name", "Family Member"),
+            age=member.get("age", 0),
+            dietary_type=member.get("dietary_type", "normal"),
+            allergies=member.get("allergies", []),
+            preferences=member.get("preferences", []),
+            telegram=member.get("telegram", ""),
+            goal=member.get("goal", "maintenance"),
+            gender=member.get("gender", ""),
+            weight_kg=member.get("weight_kg", 0),
+            height_cm=member.get("height_cm", 0),
+        )
+        if result:
+            saved.append(result)
+    return saved
 
 
 def save_meal_plan(user_id, goal, week_start):

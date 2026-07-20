@@ -18,6 +18,7 @@ from database import (
     save_day_meals,
     save_grocery_list,
     get_user,
+    get_family_members,
     get_latest_plan,
     get_user_history,
     update_plan_status,
@@ -190,6 +191,108 @@ def apply_budget_summary(plan: Dict[str, Any], budget_weekly: int, goal: str) ->
         plan["goal_summary"] = (
             f"{plan.get('goal_summary', '')} Grocery estimate is still tight for the ₹{budget_weekly} weekly budget; increase budget or reduce variety."
         ).strip()
+    return plan
+
+
+def estimate_person_targets(person: Dict[str, Any]) -> Dict[str, int]:
+    goal = person.get("goal") or "maintenance"
+    base = GOAL_TARGETS.get(goal, GOAL_TARGETS["maintenance"])
+    weight = float(person.get("weight_kg") or 0)
+    height = float(person.get("height_cm") or 0)
+    age = float(person.get("age") or 30)
+    gender = str(person.get("gender") or "").lower()
+
+    if weight and height:
+        bmr = (10 * weight) + (6.25 * height) - (5 * age)
+        bmr += 5 if gender == "male" else -161 if gender == "female" else -80
+        maintenance = max(1200, round(bmr * 1.35))
+        if goal == "weight_loss":
+            calories = max(base["min_calories"], min(base["max_calories"], maintenance - 350))
+        elif goal == "muscle_gain":
+            calories = max(base["min_calories"], min(base["max_calories"], maintenance + 250))
+        else:
+            calories = max(base["min_calories"], min(base["max_calories"], maintenance))
+    else:
+        calories = round((base["min_calories"] + base["max_calories"]) / 2)
+
+    protein_multiplier = 1.8 if goal == "muscle_gain" else 1.4 if goal == "weight_loss" else 1.1
+    protein = max(base["min_protein"], round((weight or 55) * protein_multiplier))
+    return {"calories": int(calories), "protein": int(protein)}
+
+
+def build_people_profiles(user: Dict[str, Any]) -> List[Dict[str, Any]]:
+    people = [{
+        "id": f"user-{user.get('id')}",
+        "name": user.get("name") or "Main profile",
+        "relationship": "main",
+        "age": user.get("age") or 0,
+        "gender": user.get("gender") or "",
+        "weight_kg": user.get("weight_kg") or 0,
+        "height_cm": user.get("height_cm") or 0,
+        "goal": user.get("goal") or "maintenance",
+        "dietary_type": normalize_dietary_type(user.get("dietary_type")) or "normal",
+        "allergies": user.get("allergies") or [],
+        "preferences": user.get("preferences") or [],
+    }]
+    for member in get_family_members(user.get("id")):
+        people.append({
+            "id": f"member-{member.get('id') or member.get('name')}",
+            "name": member.get("name") or "Family member",
+            "relationship": "family",
+            "age": member.get("age") or 0,
+            "gender": member.get("gender") or "",
+            "weight_kg": member.get("weight_kg") or 0,
+            "height_cm": member.get("height_cm") or 0,
+            "goal": member.get("goal") or user.get("goal") or "maintenance",
+            "dietary_type": normalize_dietary_type(member.get("dietary_type")) or normalize_dietary_type(user.get("dietary_type")) or "normal",
+            "allergies": member.get("allergies") or [],
+            "preferences": member.get("preferences") or [],
+        })
+    return people
+
+
+def attach_people_plans(plan: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    base_days = plan.get("week_plan") or []
+    people_plans = []
+    for person in build_people_profiles(user):
+        targets = estimate_person_targets(person)
+        goal = person.get("goal") or "maintenance"
+        adjusted_days = []
+        for day in base_days:
+            base_calories = float(day.get("total_calories") or 0)
+            base_protein = float(day.get("total_protein") or 0)
+            needs_more = targets["calories"] > base_calories or targets["protein"] > base_protein
+            if goal == "muscle_gain" and needs_more:
+                portion_note = "Add curd, dal, paneer/tofu, or extra roti to match this person's muscle-gain target."
+            elif goal == "weight_loss":
+                portion_note = "Use smaller rice/roti portions and more salad/vegetables for this person's weight-loss target."
+            elif needs_more:
+                portion_note = "Adjust portions with dal, curd, rice, or roti to meet this person's maintenance target."
+            else:
+                portion_note = "Base portions fit this person's target."
+            adjusted_days.append({
+                "day": day.get("day") or day.get("day_name") or "",
+                "calories": targets["calories"],
+                "protein": targets["protein"],
+                "status": "planned",
+                "portion_note": portion_note,
+                "meals": [
+                    {"type": "Breakfast", "name": day.get("breakfast", ""), "calories": day.get("breakfast_calories", 0), "protein": day.get("breakfast_protein", 0)},
+                    {"type": "Lunch", "name": day.get("lunch", ""), "calories": day.get("lunch_calories", 0), "protein": day.get("lunch_protein", 0)},
+                    {"type": "Dinner", "name": day.get("dinner", ""), "calories": day.get("dinner_calories", 0), "protein": day.get("dinner_protein", 0)},
+                ],
+            })
+        people_plans.append({
+            "person_id": person["id"],
+            "name": person["name"],
+            "goal": goal,
+            "gender": person.get("gender") or "",
+            "dietary_type": person.get("dietary_type") or "normal",
+            "target_calories": targets["calories"],
+            "target_protein": targets["protein"],
+            "days": adjusted_days,
+        })
+    plan["people_plans"] = people_plans
     return plan
 
 
@@ -406,7 +509,7 @@ def generate_structured_plan(
 
         result = json.loads(response.choices[0].message.content)
         result["user_id"] = user_id
-        return apply_budget_summary(result, budget_weekly, goal)
+        return attach_people_plans(apply_budget_summary(result, budget_weekly, goal), user or {})
 
     except Exception as e:
         print(f"⚠️ Structured plan error: {str(e)}")
@@ -420,7 +523,7 @@ def generate_structured_plan(
             ("Saturday", "Besan dhokla with green chutney", 310, 14, "Kadhi rice with carrot salad", 500, 19, "Bhindi masala with dal and chapati", 460, 20),
             ("Sunday", "Sprouts chilla with tomato chutney", 330, 20, "Vegetable biryani with raita", 520, 20, "Lauki kofta with phulka and dal soup", 450, 22),
         ]
-        return apply_budget_summary({
+        return attach_people_plans(apply_budget_summary({
             "user_id": user_id,
             "week_plan": [
                 {
@@ -456,7 +559,7 @@ def generate_structured_plan(
                 "Turmeric powder", "Cumin seeds", "Coriander powder", "Garam masala", "Mustard oil"
             ],
             "goal_summary": "Basic weight loss meal plan with Indian recipes."
-        }, parse_budget((user or {}).get("budget_weekly") if user else 0), goal)
+        }, parse_budget((user or {}).get("budget_weekly") if user else 0), goal), user or {})
 
 
 def run_onboarding(

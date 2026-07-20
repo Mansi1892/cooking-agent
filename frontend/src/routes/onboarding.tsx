@@ -26,6 +26,7 @@ function Onboarding() {
   const [form, setForm] = useState<OnboardPayload>({
     name: authUser?.name || "",
     age: 28,
+    gender: "",
     weight: 70,
     height: 170,
     weekly_budget: 2500,
@@ -225,6 +226,7 @@ function restoreProfile(profile: any, authUser?: { email?: string; name?: string
     name,
     email,
     age: profile.age,
+    gender: profile.gender || "",
     weight: profile.weight_kg,
     height: profile.height_cm,
     weekly_budget: profile.budget_weekly,
@@ -297,6 +299,12 @@ function validateFamily(family: FamilyMember[]) {
   family.forEach((member, index) => {
     if (!member.name?.trim()) errors[index] = "Family member name is required. Delete this row if you do not want to add them.";
     if (!member.diet) errors[index] = "Dietary preference is required.";
+    if (!member.goal) errors[index] = "Goal is required for each family member.";
+    if (member.age && (member.age < 1 || member.age > 120)) errors[index] = "Enter a valid age for each family member.";
+    const weight = Number(member.weight ?? member.weight_kg ?? 0);
+    const height = Number(member.height ?? member.height_cm ?? 0);
+    if (weight && (weight < 20 || weight > 300)) errors[index] = "Enter a valid weight for each family member.";
+    if (height && (height < 80 || height > 250)) errors[index] = "Enter a valid height for each family member.";
   });
   return errors;
 }
@@ -325,6 +333,14 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
         <Field label="Age">
           <input type="number" className={input()} value={form.age || ""} onChange={(e) => update({ age: cleanNumber(e.target.value) })} />
           {errors.age && <ErrorText>{errors.age}</ErrorText>}
+        </Field>
+        <Field label="Gender">
+          <select className={input()} value={form.gender ?? ""} onChange={(e) => update({ gender: e.target.value })}>
+            <option value="">Prefer not to say</option>
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+            <option value="other">Other</option>
+          </select>
         </Field>
         <Field label="Weight (kg)">
           <input type="number" className={input()} value={form.weight || ""} onChange={(e) => update({ weight: cleanNumber(e.target.value) })} />
@@ -398,7 +414,7 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
   const family = form.family ?? [];
   const errors = validateFamily(family);
 
-  const add = () => update({ family: [...family, { name: "", diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
+  const add = () => update({ family: [...family, { name: "", age: 28, goal: "maintenance", gender: "", weight: 60, height: 165, diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
   const remove = (i: number) => update({ family: family.filter((_, idx) => idx !== i) });
   const patch = (i: number, p: Partial<FamilyMember>) =>
     update({ family: family.map((m, idx) => (idx === i ? { ...m, ...p } : m)) });
@@ -430,6 +446,30 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                   <select className={input()} value={m.diet} onChange={(e) => patch(i, { diet: e.target.value })}>
                     {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
                   </select>
+                </Field>
+                <Field label="Goal">
+                  <select className={input()} value={m.goal ?? "maintenance"} onChange={(e) => patch(i, { goal: e.target.value as FamilyMember["goal"] })}>
+                    <option value="weight_loss">Weight Loss</option>
+                    <option value="muscle_gain">Muscle Gain</option>
+                    <option value="maintenance">Maintenance</option>
+                  </select>
+                </Field>
+                <Field label="Gender">
+                  <select className={input()} value={m.gender ?? ""} onChange={(e) => patch(i, { gender: e.target.value })}>
+                    <option value="">Prefer not to say</option>
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                    <option value="other">Other</option>
+                  </select>
+                </Field>
+                <Field label="Age">
+                  <input className={input()} type="number" value={m.age ?? 0} onChange={(e) => patch(i, { age: cleanNumber(e.target.value) })} />
+                </Field>
+                <Field label="Weight (kg)">
+                  <input className={input()} type="number" value={m.weight ?? m.weight_kg ?? 0} onChange={(e) => patch(i, { weight: cleanNumber(e.target.value) })} />
+                </Field>
+                <Field label="Height (cm)">
+                  <input className={input()} type="number" value={m.height ?? m.height_cm ?? 0} onChange={(e) => patch(i, { height: cleanNumber(e.target.value) })} />
                 </Field>
                 <Field label="Allergies (comma separated)">
                   <input className={input()} value={(m.allergies ?? []).join(", ")} onChange={(e) => patch(i, { allergies: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="peanuts, shellfish" />

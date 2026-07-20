@@ -43,6 +43,7 @@ function MealPlans() {
   const [role, setRole] = useState(storage.getRole());
   const [creditRequested, setCreditRequested] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [activePersonId, setActivePersonId] = useState<string>("");
 
   useEffect(() => {
     const userId = storage.getUserId();
@@ -124,6 +125,7 @@ function MealPlans() {
         return;
       }
       setPlan(newPlan);
+      setActivePersonId(newPlan.people_plans?.[0]?.person_id || "");
       storage.setLastPlanId(newPlan.id);
       setProgress(100);
       if (newPlan.status !== "approved") {
@@ -167,6 +169,9 @@ function MealPlans() {
   const s = plan?.week_summary ?? { healthy_score: 0, avg_calories: 0, avg_protein: 0, total_budget: 0 };
   const recipesUnlocked = plan?.status === "approved";
   const isAdmin = role === "admin";
+  const peoplePlans = plan?.people_plans ?? [];
+  const activePerson = peoplePlans.find((person) => person.person_id === activePersonId) || peoplePlans[0];
+  const displayDays = activePerson?.days || plan?.days || [];
 
   return (
     <div className="space-y-8 animate-fade-up">
@@ -247,16 +252,44 @@ function MealPlans() {
       ) : plan && (
         <>
           {/* Summary */}
+          {peoplePlans.length > 0 && (
+            <section className="rounded-2xl border border-border bg-surface shadow-soft p-4">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {peoplePlans.map((person) => {
+                  const active = (activePerson?.person_id || "") === person.person_id;
+                  return (
+                    <button
+                      key={person.person_id}
+                      onClick={() => setActivePersonId(person.person_id)}
+                      className={[
+                        "shrink-0 rounded-lg border px-3.5 py-2 text-sm font-medium transition",
+                        active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted",
+                      ].join(" ")}
+                    >
+                      {person.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {activePerson && (
+                <div className="mt-3 text-xs text-text-secondary capitalize">
+                  {activePerson.goal.replace("_", " ")} · {activePerson.dietary_type?.replace("_", " ")} · target {activePerson.target_calories} kcal / {activePerson.target_protein}g protein daily
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Summary */}
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <SummaryStat label="Healthy Score" value={`${s.healthy_score}`} unit="/100" tone="success" />
-            <SummaryStat label="Avg Daily Calories" value={s.avg_calories.toLocaleString()} unit="kcal" tone="primary" />
-            <SummaryStat label="Avg Daily Protein" value={`${s.avg_protein}g`} tone="accent" />
+            <SummaryStat label="Daily Calories" value={(activePerson?.target_calories || s.avg_calories).toLocaleString()} unit="kcal" tone="primary" />
+            <SummaryStat label="Daily Protein" value={`${activePerson?.target_protein || s.avg_protein}g`} tone="accent" />
             <SummaryStat label="Est. Grocery Cost" value={`₹${s.total_budget.toLocaleString()}`} tone="warning" />
           </section>
 
           {/* Days */}
           <section className="space-y-3">
-            {(plan.days ?? []).map((d) => {
+            {displayDays.map((d) => {
               const open = openDay === d.day;
               const proteinPct = Math.min(100, (d.protein / 180) * 100);
               const calPct = Math.min(100, (d.calories / 2500) * 100);
@@ -286,6 +319,11 @@ function MealPlans() {
                   <div className={"grid transition-all duration-300 " + (open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
                     <div className="overflow-hidden">
                       <div className="px-5 pb-5 grid sm:grid-cols-2 gap-3 border-t border-border pt-4">
+                        {"portion_note" in d && d.portion_note && (
+                          <div className="sm:col-span-2 rounded-xl border border-primary/20 bg-primary-light/40 px-4 py-3 text-sm text-text-secondary">
+                            {d.portion_note}
+                          </div>
+                        )}
                         {d.meals.map((m, idx) => (
                           <div key={idx} className="rounded-xl border border-border p-4 hover:shadow-elevated hover:-translate-y-0.5 transition">
                             <div className="flex items-center justify-between">
