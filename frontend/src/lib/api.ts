@@ -1,7 +1,10 @@
 // Smart Meal AI API client
 // Frontend and backend are served through the same Vite dev server via /api proxy.
 
-const BASE_URL = (typeof window !== "undefined" && (window as any).__MPA_API__) || "/api";
+const BASE_URL =
+  (typeof window !== "undefined" && (window as any).__MPA_API__) ||
+  import.meta.env.VITE_API_URL ||
+  "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
