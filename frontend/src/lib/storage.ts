@@ -1,6 +1,7 @@
 // LocalStorage helpers for Smart Meal AI
 
 const KEYS = {
+  appVersion: "mpa_app_version",
   userId: "mpa_user_id",
   userName: "mpa_user_name",
   userGoal: "mpa_user_goal",
@@ -12,6 +13,8 @@ const KEYS = {
   credits: "mpa_credits",
   role: "mpa_role",
 } as const;
+
+const APP_STORAGE_VERSION = "2026-07-20-family-tabs-v1";
 
 function read(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -39,6 +42,16 @@ function clearAdminSession() {
 
 export const storage = {
   keys: KEYS,
+  ensureFreshVersion: () => {
+    const current = read(KEYS.appVersion);
+    if (current === APP_STORAGE_VERSION) return false;
+    Object.values(KEYS).forEach((k) => {
+      if (k !== KEYS.appVersion) write(k, null);
+    });
+    clearAdminSession();
+    write(KEYS.appVersion, APP_STORAGE_VERSION);
+    return true;
+  },
   getUserId: () => read(KEYS.userId),
   setUserId: (v: string) => write(KEYS.userId, v),
   getUserName: () => read(KEYS.userName),
@@ -56,6 +69,7 @@ export const storage = {
   isLoggedIn: () => !!read(KEYS.authUser),
   logout: () => {
     Object.values(KEYS).forEach((k) => write(k, null));
+    write(KEYS.appVersion, APP_STORAGE_VERSION);
     clearAdminSession();
   },
   getStreak: () => Number(read(KEYS.streak) || "0"),
@@ -90,6 +104,7 @@ export const storage = {
   },
   clearAll: () => {
     Object.values(KEYS).forEach((k) => write(k, null));
+    write(KEYS.appVersion, APP_STORAGE_VERSION);
     clearAdminSession();
   },
 };

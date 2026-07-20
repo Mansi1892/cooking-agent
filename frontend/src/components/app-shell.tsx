@@ -13,6 +13,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isPublic = isLogin;
 
   useEffect(() => {
+    const sessionWasReset = storage.ensureFreshVersion();
+    if (sessionWasReset && !isLogin) {
+      navigate({ to: "/login" });
+      return;
+    }
     if (!isPublic && !storage.isLoggedIn()) {
       navigate({ to: "/login" });
       return;
