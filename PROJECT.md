@@ -59,6 +59,14 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 - Backend command: `venv/bin/python -m uvicorn api:app --host 127.0.0.1 --port 8000`
 - Frontend command: `npm run dev -- --host 0.0.0.0 --port 8080`
 
+## Deployment
+
+- Frontend is deployed on Vercel.
+- Backend should run as a Python web service on Render/Railway/Fly or similar.
+- This repo includes `render.yaml` for Render.
+- After backend deployment, set Vercel `VITE_API_URL` to the backend URL and redeploy the frontend.
+- Telegram approval buttons need the bot process/webhook strategy to be available in production. The API can send Telegram messages, while callback handling needs `telegram_bot.py` or a webhook-based replacement.
+
 ## Validation
 
 ```bash

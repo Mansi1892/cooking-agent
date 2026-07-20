@@ -128,6 +128,65 @@ Open:
 http://localhost:8080/
 ```
 
+## Deployment
+
+The frontend and backend deploy separately:
+
+- Frontend: Vercel
+- Backend API: Render/Railway/Fly-style Python web service
+- Database: Supabase
+
+Current Vercel frontend deployment:
+
+```text
+https://frontend-orpin-zeta-59.vercel.app
+```
+
+### Backend On Render
+
+The repo includes `render.yaml` for a Render web service.
+
+1. Open Render and create a new Blueprint/Web Service from the GitHub repo.
+2. Use the repo root as the backend root, not `frontend`.
+3. Render should use:
+
+```bash
+pip install -r requirements.txt
+uvicorn api:app --host 0.0.0.0 --port $PORT
+```
+
+4. Add these Render environment variables:
+
+```env
+OPENAI_API_KEY=...
+SUPABASE_URL=...
+SUPABASE_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+TAVILY_API_KEY=...
+TELEGRAM_BOT_TOKEN=...
+ADMIN_PASSWORD=...
+```
+
+5. After Render gives a backend URL, verify:
+
+```bash
+curl https://your-render-api-url/health
+```
+
+Expected:
+
+```json
+{"status":"ok"}
+```
+
+6. In Vercel project settings, add:
+
+```env
+VITE_API_URL=https://your-render-api-url
+```
+
+Then redeploy the Vercel frontend.
+
 ## User Flow
 
 1. User opens the frontend.
