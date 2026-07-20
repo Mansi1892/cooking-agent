@@ -18,3 +18,4 @@ venv/
 
 # Python cache
 .pytest_cache/
+.vercel
