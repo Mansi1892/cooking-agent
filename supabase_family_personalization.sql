@@ -37,3 +37,17 @@ begin
       );
   end if;
 end $$;
+
+create table if not exists public.person_plan_overrides (
+  id bigserial primary key,
+  plan_id bigint not null references public.meal_plans(id) on delete cascade,
+  person_id text not null,
+  person_name text,
+  day_name text not null,
+  override jsonb not null default '{}'::jsonb,
+  feedback text,
+  created_at timestamp with time zone default now()
+);
+
+create unique index if not exists person_plan_overrides_unique_day
+  on public.person_plan_overrides(plan_id, person_id, day_name);

@@ -471,6 +471,39 @@ def save_feedback(plan_id, member_name, rating, comment, regenerate_flag):
         return {}
 
 
+def save_person_plan_override(plan_id, person_id, person_name, day_name, override, feedback=""):
+    payload = {
+        "plan_id": plan_id,
+        "person_id": person_id,
+        "person_name": person_name,
+        "day_name": day_name,
+        "override": override or {},
+        "feedback": feedback or "",
+    }
+    try:
+        supabase.table("person_plan_overrides").delete().eq("plan_id", plan_id).eq("person_id", person_id).eq("day_name", day_name).execute()
+        result = supabase.table("person_plan_overrides").insert(payload).select("*").execute()
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error saving person plan override: {exc}")
+        return {}
+
+
+def get_person_plan_overrides(plan_id):
+    try:
+        result = (
+            supabase.table("person_plan_overrides")
+            .select("*")
+            .eq("plan_id", plan_id)
+            .order("id", desc=True)
+            .execute()
+        )
+        return result.data or []
+    except Exception as exc:
+        print(f"⚠️ Error fetching person plan overrides: {exc}")
+        return []
+
+
 def get_latest_plan(user_id):
     try:
         result = (

@@ -24,6 +24,8 @@ from database import (
     add_user_credits,
     list_users,
     get_grocery_list,
+    get_person_plan_overrides,
+    save_person_plan_override,
     create_credit_request,
     list_credit_requests,
     update_credit_request,
@@ -129,6 +131,14 @@ class RecipeRequest(BaseModel):
     meal_name: str
     meal_type: Optional[str] = None
     servings: Optional[int] = None
+
+
+class PersonDayRegenerateRequest(BaseModel):
+    user_id: str
+    plan_id: str
+    person_id: str
+    day: str
+    feedback: str
 
 
 class CreditGrantRequest(BaseModel):
@@ -724,7 +734,7 @@ def format_saved_plan_for_ui(plan: dict, user: dict) -> dict:
     day_count = max(len(days), 1)
     avg_calories = round(sum(day["calories"] for day in days) / day_count)
     avg_protein = round(sum(day["protein"] for day in days) / day_count)
-    return {
+    formatted = {
         "id": str(plan.get("id") or ""),
         "user_id": str(user.get("id") or plan.get("user_id") or ""),
         "status": plan.get("status", "ready"),
@@ -740,6 +750,28 @@ def format_saved_plan_for_ui(plan: dict, user: dict) -> dict:
         "shopping_list": [],
         "people_plans": attach_people_plans({"week_plan": day_rows}, user).get("people_plans", []),
     }
+    return apply_person_plan_overrides(formatted)
+
+
+def apply_person_plan_overrides(plan: dict) -> dict:
+    plan_id = str(plan.get("id") or "")
+    if not plan_id:
+        return plan
+    overrides = get_person_plan_overrides(plan_id)
+    if not overrides:
+        return plan
+    lookup = {
+        (str(item.get("person_id") or ""), str(item.get("day_name") or "")): item.get("override") or {}
+        for item in overrides
+    }
+    for person in plan.get("people_plans") or []:
+        person_id = str(person.get("person_id") or "")
+        for index, day in enumerate(person.get("days") or []):
+            override = lookup.get((person_id, str(day.get("day") or "")))
+            if override:
+                merged = {**day, **override, "status": "updated"}
+                person["days"][index] = merged
+    return plan
 
 
 def format_history_item(plan: dict, user: dict) -> dict:
@@ -1074,6 +1106,86 @@ async def get_plan(plan_id: str):
 @app.get("/api/plan/{plan_id}")
 async def api_get_plan(plan_id: str):
     return await get_plan(plan_id)
+
+
+@app.post("/plan/regenerate-person-day")
+async def regenerate_person_day(payload: PersonDayRegenerateRequest):
+    user = get_user(payload.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    plan_record = get_meal_plan(int(payload.plan_id)) if str(payload.plan_id).isdigit() else None
+    if not plan_record:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if str(plan_record.get("user_id")) != str(payload.user_id):
+        raise HTTPException(status_code=403, detail="Plan does not belong to this user")
+
+    formatted = format_saved_plan_for_ui(plan_record, user)
+    person = next((p for p in formatted.get("people_plans", []) if str(p.get("person_id")) == str(payload.person_id)), None)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person tab not found")
+    current_day = next((d for d in person.get("days", []) if str(d.get("day")) == str(payload.day)), None)
+    if not current_day:
+        raise HTTPException(status_code=404, detail="Day not found")
+
+    prompt = f"""
+    Regenerate only this person's day meal plan. Do not modify any other person or day.
+
+    Person:
+    Name: {person.get('name')}
+    Goal: {person.get('goal')}
+    Gender: {person.get('gender') or 'not specified'}
+    Diet: {person.get('dietary_type')}
+    Daily calorie target: {person.get('target_calories')} kcal
+    Daily protein target: {person.get('target_protein')}g
+
+    Day: {payload.day}
+    Current meals:
+    {current_day}
+
+    User feedback:
+    {payload.feedback}
+
+    Return ONLY valid JSON:
+    {{
+      "day": "{payload.day}",
+      "calories": 0,
+      "protein": 0,
+      "portion_note": "short note",
+      "meals": [
+        {{"type": "Breakfast", "name": "meal", "calories": 0, "protein": 0}},
+        {{"type": "Lunch", "name": "meal", "calories": 0, "protein": 0}},
+        {{"type": "Dinner", "name": "meal", "calories": 0, "protein": 0}}
+      ]
+    }}
+    """
+    try:
+        response = openai_client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+        import json
+        override = json.loads(response.choices[0].message.content)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Person day regeneration failed: {exc}")
+
+    override["day"] = payload.day
+    override["status"] = "updated"
+    save_person_plan_override(
+        plan_id=payload.plan_id,
+        person_id=payload.person_id,
+        person_name=person.get("name") or "",
+        day_name=payload.day,
+        override=override,
+        feedback=payload.feedback,
+    )
+    updated_plan = format_saved_plan_for_ui(get_meal_plan(int(payload.plan_id)), user)
+    return {"plan": updated_plan, "override": override}
+
+
+@app.post("/api/plan/regenerate-person-day")
+async def api_regenerate_person_day(payload: PersonDayRegenerateRequest):
+    return await regenerate_person_day(payload)
 
 
 # --- Grocery ---

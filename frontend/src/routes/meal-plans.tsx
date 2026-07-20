@@ -44,6 +44,7 @@ function MealPlans() {
   const [creditRequested, setCreditRequested] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [activePersonId, setActivePersonId] = useState<string>("");
+  const [regeneratingDay, setRegeneratingDay] = useState<string>("");
 
   useEffect(() => {
     const userId = storage.getUserId();
@@ -161,6 +162,31 @@ function MealPlans() {
       toast.error("Recipe not ready", { description: error instanceof Error ? error.message : "Please try again." });
     } finally {
       setRecipeLoading(false);
+    }
+  }
+
+  async function changePersonDay(day: string) {
+    const userId = storage.getUserId();
+    if (!userId || !plan?.id || !activePerson?.person_id) return;
+    const feedback = window.prompt(`What should change for ${activePerson.name}'s ${day}?`, "Make it lighter and avoid repeating meals");
+    if (!feedback?.trim()) return;
+    const key = `${activePerson.person_id}:${day}`;
+    setRegeneratingDay(key);
+    try {
+      const result = await api.regeneratePersonDay({
+        user_id: userId,
+        plan_id: plan.id,
+        person_id: activePerson.person_id,
+        day,
+        feedback: feedback.trim(),
+      });
+      setPlan(result.plan);
+      setActivePersonId(activePerson.person_id);
+      toast.success("Updated this person's day", { description: `${activePerson.name}'s ${day} was regenerated.` });
+    } catch (error) {
+      toast.error("Could not update this day", { description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
+      setRegeneratingDay("");
     }
   }
 
@@ -320,8 +346,18 @@ function MealPlans() {
                     <div className="overflow-hidden">
                       <div className="px-5 pb-5 grid sm:grid-cols-2 gap-3 border-t border-border pt-4">
                         {"portion_note" in d && d.portion_note && (
-                          <div className="sm:col-span-2 rounded-xl border border-primary/20 bg-primary-light/40 px-4 py-3 text-sm text-text-secondary">
-                            {d.portion_note}
+                          <div className="sm:col-span-2 rounded-xl border border-primary/20 bg-primary-light/40 px-4 py-3 text-sm text-text-secondary flex items-start justify-between gap-3">
+                            <span>{d.portion_note}</span>
+                            {activePerson && (
+                              <button
+                                onClick={() => changePersonDay(d.day)}
+                                disabled={regeneratingDay === `${activePerson.person_id}:${d.day}`}
+                                className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-primary/25 bg-surface px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-light disabled:opacity-60 transition"
+                              >
+                                {regeneratingDay === `${activePerson.person_id}:${d.day}` ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                                Change this day
+                              </button>
+                            )}
                           </div>
                         )}
                         {d.meals.map((m, idx) => (

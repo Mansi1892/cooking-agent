@@ -269,6 +269,7 @@ The setup adds:
 - `family_members.gender`
 - `family_members.weight_kg`
 - `family_members.height_cm`
+- `person_plan_overrides` for persisted per-person/day changes
 
 The app has fallback handling if these columns are not present yet, but production personalization works best after running the migration.
 
@@ -279,7 +280,8 @@ Family meal planning rules:
 - Each person tab uses that person's goal, gender, age, weight, height, diet, allergies, and preferences.
 - People with compatible goals/diets can share the same meal base with different portions.
 - People with different goals receive different calorie/protein targets and portion notes.
-- Future improvement: persist every person/day plan in a dedicated table for deeper per-person regenerate history.
+- The browser can regenerate one person's one day from that person's tab without changing other people.
+- Future improvement: extend Telegram callbacks so reject can target a specific person/day from Telegram too.
 
 ## Telegram Flow
 

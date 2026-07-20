@@ -161,6 +161,7 @@ export const api = {
   getCreditRequests: (adminUserId: string, adminPassword: string) => request<{ requests: CreditRequest[] }>(`/admin/credit-requests?admin_user_id=${encodeURIComponent(adminUserId)}&admin_password=${encodeURIComponent(adminPassword)}`),
   grantCreditRequest: (payload: { admin_user_id: string; admin_password: string; request_id: number; amount: number }) => request<{ profile: UserProfile; credits: number }>("/admin/credit-requests/grant", { method: "POST", body: JSON.stringify(payload) }),
   generateRecipe: (payload: { user_id: string; meal_name: string; meal_type?: string }) => request<{ recipe: Recipe }>("/recipe/generate", { method: "POST", body: JSON.stringify(payload) }),
+  regeneratePersonDay: (payload: { user_id: string; plan_id: string; person_id: string; day: string; feedback: string }) => request<{ plan: MealPlan; override: any }>("/plan/regenerate-person-day", { method: "POST", body: JSON.stringify(payload) }),
   testTelegram: (userId: string) => request<{ sent: boolean }>(`/telegram/test/${userId}`, { method: "POST" }),
   getPlan: (planId: string) => request<MealPlan>(`/plan/${planId}`),
   getHistory: async (userId: string) => {
