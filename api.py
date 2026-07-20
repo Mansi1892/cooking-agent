@@ -788,6 +788,18 @@ def summarize_weekly_history(history: list, user: dict) -> list:
 def format_grocery_groups(items) -> list:
     if not isinstance(items, list):
         return []
+    if items and all(not isinstance(item, dict) for item in items):
+        normalized = []
+        for item in items:
+            text = str(item).strip()
+            if not text:
+                continue
+            parts = text.rsplit(" ", 1)
+            if len(parts) == 2 and any(char.isdigit() for char in parts[1]):
+                normalized.append({"name": parts[0], "quantity": parts[1]})
+            else:
+                normalized.append({"name": text, "quantity": ""})
+        return [{"category": "Groceries", "items": normalized}] if normalized else []
     groups = []
     for group in items:
         if not isinstance(group, dict):
@@ -807,6 +819,66 @@ def format_grocery_groups(items) -> list:
         if normalized_items:
             groups.append({"category": category, "items": normalized_items})
     return groups
+
+
+def grocery_from_day_meals(plan: dict) -> list:
+    day_meals = plan.get("day_meals") or []
+    names = []
+    for day in day_meals:
+        for key in ("breakfast", "lunch", "dinner"):
+            meal = str(day.get(key) or "").strip()
+            if meal:
+                names.append(meal)
+    if not names:
+        return []
+
+    text = " ".join(names).lower()
+    groups = [
+        ("Grains", [
+            ("Rice", "2 kg", ["rice", "chawal", "biryani"]),
+            ("Atta", "2 kg", ["chapati", "phulka", "roti", "paratha"]),
+            ("Oats", "500g", ["oats"]),
+            ("Poha", "500g", ["poha"]),
+        ]),
+        ("Proteins", [
+            ("Dal", "1 kg", ["dal", "sambar"]),
+            ("Rajma", "500g", ["rajma"]),
+            ("Chana", "500g", ["chana", "chole"]),
+            ("Soya chunks", "500g", ["soya"]),
+            ("Paneer", "500g", ["paneer"]),
+            ("Tofu", "500g", ["tofu"]),
+            ("Eggs", "1 dozen", ["egg"]),
+            ("Chicken", "1 kg", ["chicken"]),
+            ("Fish", "800g", ["fish"]),
+        ]),
+        ("Vegetables", [
+            ("Onions", "1 kg", ["onion"]),
+            ("Tomatoes", "1 kg", ["tomato"]),
+            ("Spinach", "500g", ["palak", "spinach"]),
+            ("Bhindi", "500g", ["bhindi"]),
+            ("Mixed seasonal vegetables", "2 kg", ["vegetable", "sabzi", "khichdi", "upma", "pulao"]),
+        ]),
+        ("Dairy", [
+            ("Curd", "1 kg", ["curd", "raita", "kadhi"]),
+            ("Milk", "2 L", ["milk"]),
+        ]),
+        ("Spices & condiments", [
+            ("Turmeric powder", "100g", ["dal", "sabzi", "curry", "masala"]),
+            ("Cumin seeds", "100g", ["jeera", "dal", "rice"]),
+            ("Garam masala", "100g", ["masala", "curry"]),
+            ("Mustard oil", "1 L", ["sabzi", "curry", "masala"]),
+        ]),
+    ]
+    result = []
+    for category, candidates in groups:
+        items = [
+            {"name": name, "quantity": quantity}
+            for name, quantity, keywords in candidates
+            if any(keyword in text for keyword in keywords)
+        ]
+        if items:
+            result.append({"category": category, "items": items})
+    return result
 
 
 def calculate_plan_streak(history: list) -> int:
@@ -958,7 +1030,7 @@ async def api_telegram_test(user_id: str):
 
 @app.get("/plan/{plan_id}")
 async def get_plan(plan_id: str):
-    plan = get_latest_plan(int(plan_id)) if plan_id.isdigit() else None
+    plan = get_meal_plan(int(plan_id)) if plan_id.isdigit() else None
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     return {"plan": plan}
@@ -980,6 +1052,8 @@ async def get_grocery(plan_id: str):
     grocery = format_grocery_groups(saved_grocery.get("items") if saved_grocery else [])
     if not grocery:
         grocery = format_grocery_groups(plan.get("grocery_list") or plan.get("shopping_list") or [])
+    if not grocery:
+        grocery = grocery_from_day_meals(plan)
     return {"grocery": grocery}
 
 

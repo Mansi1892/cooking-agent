@@ -16,6 +16,7 @@ from database import (
     add_family_member,
     save_meal_plan,
     save_day_meals,
+    save_grocery_list,
     get_user,
     get_latest_plan,
     get_user_history,
@@ -573,6 +574,11 @@ def generate_meal_plan(user_id: int, feedback_text: str = "", week_start: Option
         if structured_plan.get("week_plan") and plan_id:
             save_day_meals(plan_id, structured_plan["week_plan"])
             print(f"✅ {len(structured_plan['week_plan'])} days saved to Supabase")
+
+        if structured_plan.get("shopping_list") and plan_id:
+            estimate = structured_plan.get("grocery_estimate") or {}
+            save_grocery_list(plan_id, structured_plan["shopping_list"], parse_budget(estimate.get("total_cost")))
+            print("✅ Grocery list saved to Supabase")
 
         structured_plan["plan_id"] = plan_id
         structured_plan["user_id"] = user_id
