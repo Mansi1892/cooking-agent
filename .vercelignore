@@ -1,0 +1,11 @@
+frontend
+.git
+.agents
+.codex
+.pytest_cache
+venv
+__pycache__
+.vercel
+.env
+.env.*
+*.pyc
