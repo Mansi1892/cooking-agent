@@ -26,6 +26,7 @@ The current login is a local browser session backed by a Supabase user profile l
 - Meal Plans can show person tabs for the main user and family members, with per-person calorie/protein targets and portion notes
 - 3 free meal-plan generation credits for every new user
 - Request-based admin credit manager for adding credits after free generations are used
+- Help page for users to submit app issues/errors, with admin support ticket review
 - Diet-aware plan generation prompts
 - Approved-only recipe buttons in the browser; recipes are generated on demand from online recipe context and AI
 - Auto-refresh on the Meal Plans page while a plan is pending so Telegram approval unlocks recipes without manual reload
@@ -34,7 +35,7 @@ The current login is a local browser session backed by a Supabase user profile l
 - Grocery list and meal-plan history views
 - Telegram bot support for sending plans for approval, collecting rejection feedback, and regenerating structured plans; Telegram sends are fired asynchronously after plan save
 - Settings page for account status, Telegram test message, logout, and local profile reset
-- Supabase-backed storage for users, family members, meal plans, day meals, grocery lists, and feedback
+- Supabase-backed storage for users, family members, meal plans, day meals, grocery lists, feedback, credit requests, and support tickets
 
 ## Architecture
 
@@ -62,7 +63,8 @@ cooking-agent/
 ├── requirements.txt               # Python dependencies
 └── frontend/
     ├── src/routes/login.tsx       # Local email session and profile restore
-    ├── src/routes/admin.tsx       # Pending credit request manager
+    ├── src/routes/admin.tsx       # Pending credit request and support ticket manager
+    ├── src/routes/help.tsx        # User issue/error submission form
     ├── src/routes/onboarding.tsx  # Profile and family onboarding
     ├── src/routes/meal-plans.tsx
     ├── src/routes/grocery.tsx
@@ -254,6 +256,18 @@ Credits are request-based:
 
 The backend still exposes manual admin credit endpoints for API compatibility, but the frontend uses the request workflow.
 
+## Help And Support Setup
+
+Run this once in Supabase SQL Editor:
+
+```sql
+-- see supabase_support_setup.sql
+```
+
+The setup adds `support_tickets`, where logged-in users can submit bugs, Telegram issues, grocery/meal-plan problems, account problems, and credit/billing issues from `/help`.
+
+Admin users see open support tickets on `/admin` and can mark them as reviewing or resolved.
+
 ## Family Personalization Setup
 
 Run this once in Supabase SQL Editor:
@@ -327,6 +341,12 @@ Recipe generation is intentionally browser-only. Meal cards show a `Recipe` butt
 - `GET /api/admin/credit-requests`
 - `POST /admin/credit-requests/grant`
 - `POST /api/admin/credit-requests/grant`
+- `POST /support/tickets`
+- `POST /api/support/tickets`
+- `GET /admin/support-tickets`
+- `GET /api/admin/support-tickets`
+- `POST /admin/support-tickets/status`
+- `POST /api/admin/support-tickets/status`
 - `POST /plan/generate/{user_id}` with optional JSON body `{ "week_offset": 0 }` for this week or `{ "week_offset": 1 }` for next week
 - `POST /api/plan/generate/{user_id}` with the same optional body
 - `GET /plan/latest/{user_id}`

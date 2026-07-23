@@ -29,6 +29,7 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 7. If Telegram chat ID is not saved, the plan is approved directly in the browser.
 8. Approved plans unlock browser recipe buttons.
 9. Grocery and history pages read saved Supabase plan data.
+10. Users can open Help and submit issues/errors for admin review.
 
 ## Admin And Credits
 
@@ -38,6 +39,8 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 - When credits expire, users request more credits from the Meal Plans page.
 - The Admin page shows pending credit requests only.
 - Admin grants credits from the pending request list.
+- The Admin page also shows open support tickets submitted from Help.
+- Admin can mark support tickets as reviewing or resolved.
 - The Admin tab is visible only when the current backend profile has `role = 'admin'`.
 
 ## Telegram
@@ -50,8 +53,9 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 
 ## Data Notes
 
-- Supabase stores users, family members, meal plans, day meals, grocery data, feedback, and credit requests.
+- Supabase stores users, family members, meal plans, day meals, grocery data, feedback, credit requests, and support tickets.
 - `supabase_family_personalization.sql` adds gender/goal/body-stat fields needed for richer per-person family planning.
+- `supabase_support_setup.sql` adds the support ticket table for Help/Admin.
 - Email should be unique for non-blank user records.
 - Old duplicate/null-email test users should be cleaned before enforcing the unique email index.
 - User credits should not reset during profile reset/edit flows.
@@ -87,5 +91,5 @@ npm run build
 - Replace local email session with real Supabase Auth or backend auth.
 - Move Telegram callbacks and sends to a durable worker/queue for production.
 - Add database migration files for all schema changes.
-- Add end-to-end tests for login, onboarding, credits, Telegram approval, and history grouping.
+- Add end-to-end tests for login, onboarding, credits, support tickets, Telegram approval, and history grouping.
 - Add per-meal swap/regenerate controls after a weekly plan is approved.

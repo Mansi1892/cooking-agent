@@ -29,6 +29,9 @@ from database import (
     create_credit_request,
     list_credit_requests,
     update_credit_request,
+    create_support_ticket,
+    list_support_tickets,
+    update_support_ticket,
     update_plan_status,
 )
 from agent import attach_people_plans, generate_meal_plan
@@ -164,6 +167,22 @@ class CreditRequestGrantPayload(BaseModel):
     admin_password: str
     request_id: int
     amount: int = Field(default=3, ge=1, le=100)
+
+
+class SupportTicketPayload(BaseModel):
+    user_id: str
+    category: str = Field(default="bug", max_length=40)
+    title: str = Field(..., min_length=3, max_length=120)
+    description: str = Field(..., min_length=10, max_length=3000)
+    page_url: Optional[str] = Field(default="", max_length=500)
+    severity: str = Field(default="normal", max_length=20)
+
+
+class SupportTicketStatusPayload(BaseModel):
+    admin_user_id: str
+    admin_password: str
+    ticket_id: int
+    status: str = Field(default="resolved")
 
 
 async def send_plan_to_telegram_background(telegram_id: str, generated_plan: dict) -> None:
@@ -633,6 +652,66 @@ async def admin_grant_credit_request(payload: CreditRequestGrantPayload):
 @app.post("/api/admin/credit-requests/grant")
 async def api_admin_grant_credit_request(payload: CreditRequestGrantPayload):
     return await admin_grant_credit_request(payload)
+
+
+@app.post("/support/tickets")
+async def create_ticket(payload: SupportTicketPayload):
+    user = get_user(payload.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    allowed_categories = {"bug", "meal_plan", "grocery", "telegram", "account", "billing", "other"}
+    allowed_severity = {"low", "normal", "high", "urgent"}
+    category = payload.category if payload.category in allowed_categories else "other"
+    severity = payload.severity if payload.severity in allowed_severity else "normal"
+    ticket = create_support_ticket(
+        payload.user_id,
+        category,
+        payload.title,
+        payload.description,
+        payload.page_url or "",
+        severity,
+    )
+    if not ticket:
+        raise HTTPException(status_code=500, detail="Could not create support ticket. Run supabase_support_setup.sql in Supabase.")
+    return {"ticket": ticket}
+
+
+@app.post("/api/support/tickets")
+async def api_create_ticket(payload: SupportTicketPayload):
+    return await create_ticket(payload)
+
+
+@app.get("/admin/support-tickets")
+async def admin_support_tickets(admin_user_id: str, admin_password: str, status: str = "open"):
+    require_admin(admin_user_id, admin_password)
+    return {"tickets": list_support_tickets(status)}
+
+
+@app.get("/api/admin/support-tickets")
+async def api_admin_support_tickets(admin_user_id: str, admin_password: str, status: str = "open"):
+    return await admin_support_tickets(admin_user_id, admin_password, status)
+
+
+@app.post("/admin/support-tickets/status")
+async def admin_update_support_ticket(payload: SupportTicketStatusPayload):
+    require_admin(payload.admin_user_id, payload.admin_password)
+    allowed_status = {"open", "reviewing", "resolved"}
+    if payload.status not in allowed_status:
+        raise HTTPException(status_code=400, detail="Invalid ticket status")
+    updates = {"status": payload.status}
+    if payload.status == "resolved":
+        updates["resolved_at"] = datetime.utcnow().isoformat()
+    else:
+        updates["resolved_at"] = None
+    ticket = update_support_ticket(payload.ticket_id, updates)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"ticket": ticket}
+
+
+@app.post("/api/admin/support-tickets/status")
+async def api_admin_update_support_ticket(payload: SupportTicketStatusPayload):
+    return await admin_update_support_ticket(payload)
 
 
 def parse_budget(value) -> float:

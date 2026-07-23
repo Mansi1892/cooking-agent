@@ -11,6 +11,7 @@ import {
   LogOut,
   ShieldCheck,
   Coins,
+  LifeBuoy,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/history", label: "History", icon: History },
   { to: "/profile", label: "Profile", icon: User },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/help", label: "Help", icon: LifeBuoy },
 ];
 
 export function AppSidebar() {

@@ -15,6 +15,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as MealPlansRouteImport } from './routes/meal-plans'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HistoryRouteImport } from './routes/history'
+import { Route as HelpRouteImport } from './routes/help'
 import { Route as GroceryRouteImport } from './routes/grocery'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -49,6 +50,11 @@ const HistoryRoute = HistoryRouteImport.update({
   path: '/history',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GroceryRoute = GroceryRouteImport.update({
   id: '/grocery',
   path: '/grocery',
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/grocery': typeof GroceryRoute
+  '/help': typeof HelpRoute
   '/history': typeof HistoryRoute
   '/login': typeof LoginRoute
   '/meal-plans': typeof MealPlansRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/grocery': typeof GroceryRoute
+  '/help': typeof HelpRoute
   '/history': typeof HistoryRoute
   '/login': typeof LoginRoute
   '/meal-plans': typeof MealPlansRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/grocery': typeof GroceryRoute
+  '/help': typeof HelpRoute
   '/history': typeof HistoryRoute
   '/login': typeof LoginRoute
   '/meal-plans': typeof MealPlansRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/grocery'
+    | '/help'
     | '/history'
     | '/login'
     | '/meal-plans'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/grocery'
+    | '/help'
     | '/history'
     | '/login'
     | '/meal-plans'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/grocery'
+    | '/help'
     | '/history'
     | '/login'
     | '/meal-plans'
@@ -139,6 +151,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   GroceryRoute: typeof GroceryRoute
+  HelpRoute: typeof HelpRoute
   HistoryRoute: typeof HistoryRoute
   LoginRoute: typeof LoginRoute
   MealPlansRoute: typeof MealPlansRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/grocery': {
       id: '/grocery'
       path: '/grocery'
@@ -219,6 +239,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   GroceryRoute: GroceryRoute,
+  HelpRoute: HelpRoute,
   HistoryRoute: HistoryRoute,
   LoginRoute: LoginRoute,
   MealPlansRoute: MealPlansRoute,

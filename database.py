@@ -265,6 +265,58 @@ def update_credit_request(request_id, updates):
         return {}
 
 
+def create_support_ticket(user_id, category="bug", title="", description="", page_url="", severity="normal"):
+    user = get_user(user_id)
+    if not user:
+        return {}
+    payload = {
+        "user_id": user_id,
+        "category": category or "bug",
+        "title": (title or "").strip(),
+        "description": (description or "").strip(),
+        "page_url": (page_url or "").strip(),
+        "severity": severity or "normal",
+        "status": "open",
+    }
+    try:
+        result = supabase.table("support_tickets").insert(payload).select("*, users(id,name,email,role)").execute()
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error creating support ticket for user {user_id}: {exc}")
+        return {}
+
+
+def list_support_tickets(status="open"):
+    try:
+        query = supabase.table("support_tickets").select("*, users(id,name,email,role)").order("id", desc=True)
+        if status and status != "all":
+            query = query.eq("status", status)
+        result = query.execute()
+        return result.data or []
+    except Exception as exc:
+        print(f"⚠️ Error listing support tickets: {exc}")
+        return []
+
+
+def update_support_ticket(ticket_id, updates):
+    allowed = {"status", "resolved_at"}
+    payload = {key: value for key, value in (updates or {}).items() if key in allowed}
+    if not payload:
+        return {}
+    try:
+        result = (
+            supabase.table("support_tickets")
+            .update(payload)
+            .eq("id", ticket_id)
+            .select("*, users(id,name,email,role)")
+            .execute()
+        )
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error updating support ticket {ticket_id}: {exc}")
+        return {}
+
+
 def list_users():
     try:
         result = (

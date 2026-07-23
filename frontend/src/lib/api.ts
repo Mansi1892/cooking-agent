@@ -120,6 +120,25 @@ export type CreditRequest = {
   };
 };
 
+export type SupportTicket = {
+  id: number;
+  user_id: string;
+  category: string;
+  title: string;
+  description: string;
+  page_url?: string;
+  severity: string;
+  status: string;
+  created_at?: string;
+  resolved_at?: string;
+  users?: {
+    id: string;
+    name: string;
+    email?: string;
+    role?: string;
+  };
+};
+
 export type HistoryItem = {
   plan_id: string;
   created_at: string;
@@ -160,6 +179,9 @@ export const api = {
   requestCredits: (payload: { user_id: string; requested_credits?: number; note?: string }) => request<{ request: CreditRequest }>("/credit-requests", { method: "POST", body: JSON.stringify(payload) }),
   getCreditRequests: (adminUserId: string, adminPassword: string) => request<{ requests: CreditRequest[] }>(`/admin/credit-requests?admin_user_id=${encodeURIComponent(adminUserId)}&admin_password=${encodeURIComponent(adminPassword)}`),
   grantCreditRequest: (payload: { admin_user_id: string; admin_password: string; request_id: number; amount: number }) => request<{ profile: UserProfile; credits: number }>("/admin/credit-requests/grant", { method: "POST", body: JSON.stringify(payload) }),
+  createSupportTicket: (payload: { user_id: string; category: string; title: string; description: string; page_url?: string; severity?: string }) => request<{ ticket: SupportTicket }>("/support/tickets", { method: "POST", body: JSON.stringify(payload) }),
+  getSupportTickets: (adminUserId: string, adminPassword: string, status = "open") => request<{ tickets: SupportTicket[] }>(`/admin/support-tickets?admin_user_id=${encodeURIComponent(adminUserId)}&admin_password=${encodeURIComponent(adminPassword)}&status=${encodeURIComponent(status)}`),
+  updateSupportTicketStatus: (payload: { admin_user_id: string; admin_password: string; ticket_id: number; status: string }) => request<{ ticket: SupportTicket }>("/admin/support-tickets/status", { method: "POST", body: JSON.stringify(payload) }),
   generateRecipe: (payload: { user_id: string; meal_name: string; meal_type?: string }) => request<{ recipe: Recipe }>("/recipe/generate", { method: "POST", body: JSON.stringify(payload) }),
   regeneratePersonDay: (payload: { user_id: string; plan_id: string; person_id: string; day: string; feedback: string }) => request<{ plan: MealPlan; override: any }>("/plan/regenerate-person-day", { method: "POST", body: JSON.stringify(payload) }),
   testTelegram: (userId: string) => request<{ sent: boolean }>(`/telegram/test/${userId}`, { method: "POST" }),
