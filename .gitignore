@@ -19,3 +19,5 @@ venv/
 # Python cache
 .pytest_cache/
 .vercel
+pyproject.toml
+uv.lock
