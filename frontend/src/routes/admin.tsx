@@ -131,8 +131,8 @@ function Admin() {
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <div className="text-[11px] uppercase tracking-wider text-text-light font-medium">Admin</div>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Credit manager</h1>
-          <p className="mt-1 text-sm text-text-secondary">Users get 3 free meal plan credits. Add more credits when needed.</p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Admin Center</h1>
+          <p className="mt-1 text-sm text-text-secondary">Manage credit requests and user-submitted support issues.</p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-lg bg-primary-light px-3 py-2 text-sm font-medium text-primary">
           <ShieldCheck className="size-4" /> Admin profile
