@@ -94,7 +94,7 @@ export function AppSidebar() {
         </div>
         <div className="leading-tight">
           <div className="text-[15px] font-semibold tracking-tight">Smart Meal AI</div>
-          <div className="text-[11px] text-text-light">v1.0 · Premium</div>
+          <div className="text-[11px] text-text-light">v1.0.0 · Premium</div>
         </div>
       </div>
 
