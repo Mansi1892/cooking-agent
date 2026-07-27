@@ -14,7 +14,7 @@ const KEYS = {
   role: "mpa_role",
 } as const;
 
-const APP_STORAGE_VERSION = "2026-07-20-person-day-overrides-v1";
+const APP_STORAGE_VERSION = "2026-07-27-clean-profile-forms-v1";
 
 function read(key: string): string | null {
   if (typeof window === "undefined") return null;

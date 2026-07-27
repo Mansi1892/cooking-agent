@@ -25,14 +25,14 @@ function Onboarding() {
 
   const [form, setForm] = useState<OnboardPayload>({
     name: authUser?.name || "",
-    age: 28,
+    age: 0,
     gender: "",
-    weight: 70,
-    height: 170,
-    weekly_budget: 2500,
+    weight: 0,
+    height: 0,
+    weekly_budget: 0,
     telegram: "",
-    goal: "maintenance",
-    dietary_preference: "Vegetarian",
+    goal: "" as OnboardPayload["goal"],
+    dietary_preference: "",
     allergies: [],
     preferences: [],
     family: [],
@@ -93,7 +93,7 @@ function Onboarding() {
     setSubmitting(true);
     try {
       const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
-      const payload = { ...form, email: authUser?.email || form.email || "" };
+      const payload = sanitizePayload({ ...form, email: authUser?.email || form.email || "" });
       const r = await api.onboard(payload);
       const id = r.user_id;
       const currentAuthUser = storage.getAuthUser();
@@ -315,6 +315,8 @@ function ErrorText({ children }: { children: React.ReactNode }) {
 
 function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Partial<OnboardPayload>) => void }) {
   const errors = validatePersonal(form);
+  const [allergiesText, setAllergiesText] = useState((form.allergies ?? []).join(", "));
+  const [preferencesText, setPreferencesText] = useState((form.preferences ?? []).join(", "));
   const goals = [
     { id: "weight_loss", title: "Weight Loss", desc: "Lean, sustainable calorie deficit", icon: Minus },
     { id: "muscle_gain", title: "Muscle Gain", desc: "High-protein, surplus calories", icon: TrendingUp },
@@ -327,7 +329,7 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
 
       <div className="mt-7 grid sm:grid-cols-2 gap-4">
         <Field label="Full name">
-          <input className={input()} value={form.name} onChange={(e) => update({ name: e.target.value })} placeholder="Mansi Sharma" />
+          <input className={input()} value={form.name} onChange={(e) => update({ name: e.target.value })} placeholder="Enter full name" />
           {errors.name && <ErrorText>{errors.name}</ErrorText>}
         </Field>
         <Field label="Age">
@@ -355,13 +357,14 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
           {errors.weekly_budget && <ErrorText>{errors.weekly_budget}</ErrorText>}
         </Field>
         <Field label="Telegram chat ID (optional)" hint="Open the bot and send /start to get this number">
-          <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value })} placeholder="123456789" />
+          <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value })} placeholder="Optional" />
         </Field>
       </div>
 
       <div className="mt-8 grid sm:grid-cols-2 gap-4">
         <Field label="Dietary preference">
-          <select className={input()} value={form.dietary_preference ?? "Vegetarian"} onChange={(e) => update({ dietary_preference: e.target.value })}>
+          <select className={input()} value={form.dietary_preference ?? ""} onChange={(e) => update({ dietary_preference: e.target.value })}>
+            <option value="">Select dietary preference</option>
             <option value="Vegetarian">Vegetarian</option>
             <option value="Eggetarian">Eggetarian</option>
             <option value="Vegan">Vegan</option>
@@ -372,10 +375,26 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
           {errors.dietary_preference && <ErrorText>{errors.dietary_preference}</ErrorText>}
         </Field>
         <Field label="Allergies (comma separated)">
-          <input className={input()} value={(form.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="peanuts, shellfish" />
+          <input
+            className={input()}
+            value={allergiesText}
+            onChange={(e) => {
+              setAllergiesText(e.target.value);
+              update({ allergies: splitList(e.target.value) });
+            }}
+            placeholder="Optional"
+          />
         </Field>
         <Field label="Preferences">
-          <input className={input()} value={(form.preferences ?? []).join(", ")} onChange={(e) => update({ preferences: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="spicy, mediterranean" />
+          <input
+            className={input()}
+            value={preferencesText}
+            onChange={(e) => {
+              setPreferencesText(e.target.value);
+              update({ preferences: splitList(e.target.value) });
+            }}
+            placeholder="Optional"
+          />
         </Field>
       </div>
 
@@ -414,7 +433,7 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
   const family = form.family ?? [];
   const errors = validateFamily(family);
 
-  const add = () => update({ family: [...family, { name: "", age: 28, goal: "maintenance", gender: "", weight: 60, height: 165, diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
+  const add = () => update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "" }] });
   const remove = (i: number) => update({ family: family.filter((_, idx) => idx !== i) });
   const patch = (i: number, p: Partial<FamilyMember>) =>
     update({ family: family.map((m, idx) => (idx === i ? { ...m, ...p } : m)) });
@@ -443,12 +462,14 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                   {errors[i] && <ErrorText>{errors[i]}</ErrorText>}
                 </Field>
                 <Field label="Diet">
-                  <select className={input()} value={m.diet} onChange={(e) => patch(i, { diet: e.target.value })}>
+                  <select className={input()} value={m.diet ?? ""} onChange={(e) => patch(i, { diet: e.target.value })}>
+                    <option value="">Select dietary preference</option>
                     {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
                   </select>
                 </Field>
                 <Field label="Goal">
-                  <select className={input()} value={m.goal ?? "maintenance"} onChange={(e) => patch(i, { goal: e.target.value as FamilyMember["goal"] })}>
+                  <select className={input()} value={m.goal ?? ""} onChange={(e) => patch(i, { goal: e.target.value as FamilyMember["goal"] })}>
+                    <option value="">Select goal</option>
                     <option value="weight_loss">Weight Loss</option>
                     <option value="muscle_gain">Muscle Gain</option>
                     <option value="maintenance">Maintenance</option>
@@ -463,22 +484,22 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                   </select>
                 </Field>
                 <Field label="Age">
-                  <input className={input()} type="number" value={m.age ?? 0} onChange={(e) => patch(i, { age: cleanNumber(e.target.value) })} />
+                  <input className={input()} type="number" value={m.age || ""} onChange={(e) => patch(i, { age: cleanNumber(e.target.value) })} />
                 </Field>
                 <Field label="Weight (kg)">
-                  <input className={input()} type="number" value={m.weight ?? m.weight_kg ?? 0} onChange={(e) => patch(i, { weight: cleanNumber(e.target.value) })} />
+                  <input className={input()} type="number" value={(m.weight ?? m.weight_kg) || ""} onChange={(e) => patch(i, { weight: cleanNumber(e.target.value) })} />
                 </Field>
                 <Field label="Height (cm)">
-                  <input className={input()} type="number" value={m.height ?? m.height_cm ?? 0} onChange={(e) => patch(i, { height: cleanNumber(e.target.value) })} />
+                  <input className={input()} type="number" value={(m.height ?? m.height_cm) || ""} onChange={(e) => patch(i, { height: cleanNumber(e.target.value) })} />
                 </Field>
                 <Field label="Allergies (comma separated)">
-                  <input className={input()} value={(m.allergies ?? []).join(", ")} onChange={(e) => patch(i, { allergies: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="peanuts, shellfish" />
+                  <input className={input()} value={(m as any)._allergiesText ?? (m.allergies ?? []).join(", ")} onChange={(e) => patch(i, { allergies: splitList(e.target.value), _allergiesText: e.target.value } as any)} placeholder="Optional" />
                 </Field>
                 <Field label="Preferences">
-                  <input className={input()} value={(m.preferences ?? []).join(", ")} onChange={(e) => patch(i, { preferences: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="spicy, mediterranean" />
+                  <input className={input()} value={(m as any)._preferencesText ?? (m.preferences ?? []).join(", ")} onChange={(e) => patch(i, { preferences: splitList(e.target.value), _preferencesText: e.target.value } as any)} placeholder="Optional" />
                 </Field>
                 <Field label="Telegram chat ID (optional)">
-                  <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="123456789" />
+                  <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="Optional" />
                 </Field>
               </div>
               <button onClick={() => remove(i)} className="size-8 rounded-md hover:bg-muted text-text-light hover:text-destructive grid place-items-center transition">
@@ -555,6 +576,25 @@ function Row({ k, v }: { k: string; v: string }) {
       <dd className="font-medium capitalize">{v}</dd>
     </div>
   );
+}
+
+function splitList(value: string) {
+  return value.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function sanitizePayload(payload: OnboardPayload): OnboardPayload {
+  return {
+    ...payload,
+    allergies: payload.allergies ?? [],
+    preferences: payload.preferences ?? [],
+    family: (payload.family ?? [])
+      .filter((member) => member.name?.trim())
+      .map(({ _allergiesText, _preferencesText, ...member }: any) => ({
+        ...member,
+        allergies: member.allergies ?? [],
+        preferences: member.preferences ?? [],
+      })),
+  };
 }
 
 function StepSuccess({ onContinue }: { onContinue: () => void }) {

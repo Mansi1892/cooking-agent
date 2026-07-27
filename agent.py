@@ -251,6 +251,18 @@ def build_people_profiles(user: Dict[str, Any]) -> List[Dict[str, Any]]:
     return people
 
 
+def build_people_preference_context(user: Dict[str, Any]) -> str:
+    lines = []
+    for person in build_people_profiles(user):
+        allergies = ", ".join(person.get("allergies") or []) or "None"
+        preferences = ", ".join(person.get("preferences") or []) or "None"
+        lines.append(
+            f"- {person.get('name')}: goal={person.get('goal') or 'maintenance'}, "
+            f"diet={person.get('dietary_type') or 'normal'}, allergies={allergies}, preferences={preferences}"
+        )
+    return "\n".join(lines) or "None"
+
+
 def attach_people_plans(plan: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
     base_days = plan.get("week_plan") or []
     people_plans = []
@@ -353,6 +365,8 @@ def generate_structured_plan(
         {build_dietary_instruction(user.get('dietary_type') if user else None)}
         Allergies to avoid: {', '.join(user.get('allergies') or []) if user else 'None'}
         Food preferences: {', '.join(user.get('preferences') or []) if user else 'None'}
+        Per-person family preferences and restrictions:
+        {build_people_preference_context(user or {})}
         User feedback to apply: {feedback_text or 'None'}
         Meals to avoid repeating from recent weeks: {', '.join(avoid_meals or []) or 'None'}
 
@@ -362,6 +376,8 @@ def generate_structured_plan(
         - total_protein must be at least {targets['min_protein']}g
         - Do not repeat the listed recent meals unless absolutely necessary for diet, allergy, or budget constraints.
         - Make each day meaningfully different from the other days in this generated week.
+        - Treat preferences as meal-selection requirements: cuisine, spice level, cooking style, disliked foods, preferred staples, and meal format must influence the dish choices.
+        - If a preference conflicts with allergy, dietary type, medical safety, or budget, follow safety/diet/budget first and choose the closest matching alternative.
         Return ONLY valid JSON, no explanation, no markdown:
 
         {{
@@ -486,6 +502,8 @@ def generate_structured_plan(
         Make all 7 days use the actual recipes found in the research above.
         Adjust the example JSON to use real recipes from the research.
         If user feedback is provided, adjust meal choices accordingly.
+        Make the final dish names visibly reflect the user's preferences where possible.
+        For family members with different preferences, keep the base meal compatible and use portion_note or simple swaps/add-ons in people_plans.
         Do not generate low-calorie weight-loss meals unless the goal is weight_loss.
         For maintenance and muscle_gain, add enough dal, curd, paneer/tofu/eggs if allowed, rice/roti, and legumes to hit targets.
         Plan the full week's grocery list within the ₹{budget_weekly} weekly budget.
@@ -655,10 +673,12 @@ def generate_meal_plan(user_id: int, feedback_text: str = "", week_start: Option
         Protein: {targets['min_protein']}-{targets['max_protein']}g/day
         Allergies: {allergies}
         Preferences: {preferences}
+        Per-person family preferences and restrictions:
+        {build_people_preference_context(user)}
         Feedback: {feedback_text or 'None'}
         Recent meals to avoid repeating: {', '.join(avoid_meals) or 'None'}
 
-        Use common Indian home-cooking meals and budget staples. Do not call tools.
+        Use common Indian home-cooking meals and budget staples. Preferences must affect dish choice, spice level, cuisine style, ingredients, and substitutions. Do not call tools.
         """
 
         # convert to structured JSON

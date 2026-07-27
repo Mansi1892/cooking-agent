@@ -26,14 +26,14 @@ function Profile() {
   useEffect(() => {
     const loadedProfile = storage.getProfile<OnboardPayload>() || {
       name: storage.getUserName() || "Guest",
-      age: 28,
+      age: 0,
       gender: "",
-      weight: 70,
-      height: 170,
+      weight: 0,
+      height: 0,
       goal: "maintenance",
-      weekly_budget: 2500,
+      weekly_budget: 0,
       telegram: storage.getTelegram() || "",
-      dietary_preference: "Vegetarian",
+      dietary_preference: "",
       allergies: [],
       preferences: [],
       family: [],
@@ -77,7 +77,7 @@ function Profile() {
   }
 
   function addFamily() {
-    update({ family: [...family, { name: "", age: 28, goal: "maintenance", gender: "", weight: 60, height: 165, diet: "Vegetarian", allergies: [], preferences: [], telegram: "" }] });
+    update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "" }] });
   }
 
   function removeFamily(index: number) {
@@ -92,8 +92,9 @@ function Profile() {
     setSaving(true);
     try {
       const userId = storage.getUserId();
+      const payload = sanitizeProfile(profile);
       if (userId) {
-        const result = await api.updateProfile(userId, profile);
+        const result = await api.updateProfile(userId, payload);
         const updatedProfile = normalizeProfile(result.profile);
         setProfile(updatedProfile);
         storage.setProfile(updatedProfile);
@@ -102,11 +103,11 @@ function Profile() {
         storage.setTelegram(updatedProfile.telegram || "");
         setSavedProfile(updatedProfile);
       } else {
-        storage.setProfile(profile);
-        storage.setUserName(profile.name);
-        storage.setGoal(profile.goal);
-        storage.setTelegram(profile.telegram || "");
-        setSavedProfile(profile);
+        storage.setProfile(payload);
+        storage.setUserName(payload.name);
+        storage.setGoal(payload.goal);
+        storage.setTelegram(payload.telegram || "");
+        setSavedProfile(payload);
       }
       setIsEditing(false);
       toast.success("Profile updated");
@@ -155,11 +156,11 @@ function Profile() {
       </header>
 
       <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-4">
-        <Stat icon={Target} label="Weight" value={`${profile.weight} kg`} />
-        <Stat icon={Activity} label="Height" value={`${profile.height} cm`} />
+        <Stat icon={Target} label="Weight" value={profile.weight ? `${profile.weight} kg` : "Not set"} />
+        <Stat icon={Activity} label="Height" value={profile.height ? `${profile.height} cm` : "Not set"} />
         <Stat icon={Flame} label="BMI" value={bmi} />
-        <Stat icon={UserIcon} label="Age" value={`${profile.age}`} />
-        <Stat icon={Wallet} label="Meal Budget" value={`₹${profile.weekly_budget}`} tone={budgetIsValid ? "default" : "error"} />
+        <Stat icon={UserIcon} label="Age" value={profile.age ? `${profile.age}` : "Not set"} />
+        <Stat icon={Wallet} label="Meal Budget" value={profile.weekly_budget ? `₹${profile.weekly_budget}` : "Not set"} tone={budgetIsValid ? "default" : "error"} />
       </section>
       {!budgetIsValid && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -174,8 +175,8 @@ function Profile() {
             <div className="mt-5 grid sm:grid-cols-2 gap-3">
               <Detail label="Goal" value={String(profile.goal).replace("_", " ")} />
               <Detail label="Gender" value={profile.gender || "Not set"} />
-              <Detail label="Dietary preference" value={profile.dietary_preference || "Vegetarian"} />
-              <Detail label="Weekly meal budget" value={`₹${profile.weekly_budget}`} />
+              <Detail label="Dietary preference" value={profile.dietary_preference || "Not set"} />
+              <Detail label="Weekly meal budget" value={profile.weekly_budget ? `₹${profile.weekly_budget}` : "Not set"} />
               <Detail label="Telegram chat ID" value={profile.telegram || "Not added"} />
               <Detail label="Allergies" value={(profile.allergies ?? []).join(", ") || "None"} />
               <Detail label="Preferences" value={(profile.preferences ?? []).join(", ") || "None"} />
@@ -190,7 +191,7 @@ function Profile() {
                 <div key={index} className="rounded-xl border border-border p-4">
                   <div className="font-medium">{member.name || `Family member ${index + 1}`}</div>
                   <div className="mt-1 text-sm text-text-secondary capitalize">
-                    {member.goal?.replace("_", " ") || "maintenance"} · {member.diet || "Vegetarian"}
+                    {member.goal?.replace("_", " ") || "Not set"} · {member.diet || "Not set"}
                   </div>
                   <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <Detail label="Stats" value={`${member.gender || "Not set"} · ${member.age || "-"}y · ${(member.weight ?? member.weight_kg) || "-"}kg · ${(member.height ?? member.height_cm) || "-"}cm`} compact />
@@ -248,19 +249,20 @@ function Profile() {
             {errors.weekly_budget && <ErrorText>{errors.weekly_budget}</ErrorText>}
           </Field>
           <Field label="Dietary preference">
-            <select className={input()} value={profile.dietary_preference ?? "Vegetarian"} onChange={(e) => update({ dietary_preference: e.target.value })}>
+            <select className={input()} value={profile.dietary_preference ?? ""} onChange={(e) => update({ dietary_preference: e.target.value })}>
+              <option value="">Select dietary preference</option>
               {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
             </select>
             {errors.dietary_preference && <ErrorText>{errors.dietary_preference}</ErrorText>}
           </Field>
           <Field label="Telegram chat ID">
-            <input className={input()} value={profile.telegram ?? ""} onChange={(e) => update({ telegram: e.target.value })} placeholder="123456789" />
+            <input className={input()} value={profile.telegram ?? ""} onChange={(e) => update({ telegram: e.target.value })} placeholder="Optional" />
           </Field>
           <Field label="Allergies">
-            <input className={input()} value={(profile.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: splitList(e.target.value) })} placeholder="peanuts, shellfish" />
+            <input className={input()} value={(profile as any)._allergiesText ?? (profile.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: splitList(e.target.value), _allergiesText: e.target.value } as any)} placeholder="Optional" />
           </Field>
           <Field label="Preferences">
-            <input className={input()} value={(profile.preferences ?? []).join(", ")} onChange={(e) => update({ preferences: splitList(e.target.value) })} placeholder="spicy, home food" />
+            <input className={input()} value={(profile as any)._preferencesText ?? (profile.preferences ?? []).join(", ")} onChange={(e) => update({ preferences: splitList(e.target.value), _preferencesText: e.target.value } as any)} placeholder="Optional" />
           </Field>
         </div>
       </section>}
@@ -287,12 +289,14 @@ function Profile() {
                     {familyErrors[index] && <ErrorText>{familyErrors[index]}</ErrorText>}
                   </Field>
                   <Field label="Dietary preference">
-                    <select className={input()} value={member.diet ?? "Vegetarian"} onChange={(e) => patchFamily(index, { diet: e.target.value })}>
+                    <select className={input()} value={member.diet ?? ""} onChange={(e) => patchFamily(index, { diet: e.target.value })}>
+                      <option value="">Select dietary preference</option>
                       {DIET_OPTIONS.map((diet) => <option key={diet}>{diet}</option>)}
                     </select>
                   </Field>
                   <Field label="Goal">
-                    <select className={input()} value={member.goal ?? "maintenance"} onChange={(e) => patchFamily(index, { goal: e.target.value as FamilyMember["goal"] })}>
+                    <select className={input()} value={member.goal ?? ""} onChange={(e) => patchFamily(index, { goal: e.target.value as FamilyMember["goal"] })}>
+                      <option value="">Select goal</option>
                       <option value="weight_loss">Weight Loss</option>
                       <option value="muscle_gain">Muscle Gain</option>
                       <option value="maintenance">Maintenance</option>
@@ -307,22 +311,22 @@ function Profile() {
                     </select>
                   </Field>
                   <Field label="Age">
-                    <input className={input()} type="number" value={member.age ?? 0} onChange={(e) => patchFamily(index, { age: cleanNumber(e.target.value) })} />
+                    <input className={input()} type="number" value={member.age || ""} onChange={(e) => patchFamily(index, { age: cleanNumber(e.target.value) })} />
                   </Field>
                   <Field label="Weight (kg)">
-                    <input className={input()} type="number" value={member.weight ?? member.weight_kg ?? 0} onChange={(e) => patchFamily(index, { weight: cleanNumber(e.target.value) })} />
+                    <input className={input()} type="number" value={(member.weight ?? member.weight_kg) || ""} onChange={(e) => patchFamily(index, { weight: cleanNumber(e.target.value) })} />
                   </Field>
                   <Field label="Height (cm)">
-                    <input className={input()} type="number" value={member.height ?? member.height_cm ?? 0} onChange={(e) => patchFamily(index, { height: cleanNumber(e.target.value) })} />
+                    <input className={input()} type="number" value={(member.height ?? member.height_cm) || ""} onChange={(e) => patchFamily(index, { height: cleanNumber(e.target.value) })} />
                   </Field>
                   <Field label="Allergies">
-                    <input className={input()} value={(member.allergies ?? []).join(", ")} onChange={(e) => patchFamily(index, { allergies: splitList(e.target.value) })} />
+                    <input className={input()} value={(member as any)._allergiesText ?? (member.allergies ?? []).join(", ")} onChange={(e) => patchFamily(index, { allergies: splitList(e.target.value), _allergiesText: e.target.value } as any)} placeholder="Optional" />
                   </Field>
                   <Field label="Preferences">
-                    <input className={input()} value={(member.preferences ?? []).join(", ")} onChange={(e) => patchFamily(index, { preferences: splitList(e.target.value) })} />
+                    <input className={input()} value={(member as any)._preferencesText ?? (member.preferences ?? []).join(", ")} onChange={(e) => patchFamily(index, { preferences: splitList(e.target.value), _preferencesText: e.target.value } as any)} placeholder="Optional" />
                   </Field>
                   <Field label="Telegram chat ID">
-                    <input className={input()} value={member.telegram ?? ""} onChange={(e) => patchFamily(index, { telegram: e.target.value })} />
+                    <input className={input()} value={member.telegram ?? ""} onChange={(e) => patchFamily(index, { telegram: e.target.value })} placeholder="Optional" />
                   </Field>
                 </div>
                 <button onClick={() => removeFamily(index)} className="self-start inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition">
@@ -341,14 +345,14 @@ function normalizeProfile(raw: any): OnboardPayload {
   return {
     name: raw?.name || "",
     email: raw?.email || "",
-    age: Number(raw?.age || 28),
+    age: Number(raw?.age || 0),
     gender: raw?.gender || "",
-    weight: Number(raw?.weight ?? raw?.weight_kg ?? 70),
-    height: Number(raw?.height ?? raw?.height_cm ?? 170),
+    weight: Number(raw?.weight ?? raw?.weight_kg ?? 0),
+    height: Number(raw?.height ?? raw?.height_cm ?? 0),
     goal: raw?.goal || "maintenance",
-    weekly_budget: Number(raw?.weekly_budget ?? raw?.budget_weekly ?? 2500),
+    weekly_budget: Number(raw?.weekly_budget ?? raw?.budget_weekly ?? 0),
     telegram: raw?.telegram ?? raw?.telegram_id ?? "",
-    dietary_preference: raw?.dietary_preference ?? raw?.dietary_type ?? "Vegetarian",
+    dietary_preference: raw?.dietary_preference ?? raw?.dietary_type ?? "",
     allergies: raw?.allergies || [],
     preferences: raw?.preferences || [],
     family: (raw?.family || []).map((member: any) => ({
@@ -358,7 +362,7 @@ function normalizeProfile(raw: any): OnboardPayload {
       gender: member.gender || "",
       weight: Number(member.weight ?? member.weight_kg ?? 0),
       height: Number(member.height ?? member.height_cm ?? 0),
-      diet: member.diet ?? member.dietary_type ?? "Vegetarian",
+      diet: member.diet ?? member.dietary_type ?? "",
       allergies: member.allergies || [],
       preferences: member.preferences || [],
       telegram: member.telegram || "",
@@ -368,6 +372,22 @@ function normalizeProfile(raw: any): OnboardPayload {
 
 function splitList(value: string) {
   return value.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function sanitizeProfile(profile: OnboardPayload): OnboardPayload {
+  const { _allergiesText, _preferencesText, ...cleanProfile } = profile as any;
+  return {
+    ...cleanProfile,
+    allergies: profile.allergies ?? [],
+    preferences: profile.preferences ?? [],
+    family: (profile.family ?? [])
+      .filter((member) => member.name?.trim())
+      .map(({ _allergiesText, _preferencesText, ...member }: any) => ({
+        ...member,
+        allergies: member.allergies ?? [],
+        preferences: member.preferences ?? [],
+      })),
+  };
 }
 
 function input() {
