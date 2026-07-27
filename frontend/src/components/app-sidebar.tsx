@@ -174,7 +174,12 @@ export function AppSidebar() {
 export function MobileTabBar() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const items = NAV.slice(0, 4);
+  const items = [
+    NAV[0],
+    NAV[1],
+    NAV[2],
+    NAV.find((item) => item.to === "/help")!,
+  ];
   const logout = () => {
     storage.logout();
     navigate({ to: "/login" });

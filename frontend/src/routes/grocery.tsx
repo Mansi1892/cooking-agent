@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Search, Printer, Download, Check, ShoppingBasket, Loader2 } from "lucide-react";
+import { Search, Download, Check, ShoppingBasket, Loader2 } from "lucide-react";
 import { api, type GroceryGroup } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
@@ -57,6 +57,24 @@ function Grocery() {
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   const done = Object.values(checked).filter(Boolean).length;
 
+  function exportPdf() {
+    if (total === 0) {
+      toast.error("No grocery list yet");
+      return;
+    }
+    const lines = ["Smart Meal AI - Grocery List", `${done} of ${total} items checked off`, ""];
+    groups.forEach((group) => {
+      lines.push(group.category);
+      group.items.forEach((item) => {
+        const key = `${group.category}:${item.name}`;
+        lines.push(`${checked[key] ? "[x]" : "[ ]"} ${item.name} - ${item.quantity}`);
+      });
+      lines.push("");
+    });
+    downloadTextPdf("smart-meal-grocery-list.pdf", lines);
+    toast.success("PDF downloaded");
+  }
+
   return (
     <div className="space-y-8 animate-fade-up">
       <header className="flex items-end justify-between gap-4 flex-wrap">
@@ -66,10 +84,7 @@ function Grocery() {
           <p className="mt-1 text-sm text-text-secondary">{done} of {total} items checked off</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm font-medium hover:bg-muted transition">
-            <Printer className="size-4" /> Print
-          </button>
-          <button onClick={() => toast.success("Exported PDF")} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3.5 py-2.5 text-sm font-medium hover:opacity-90 transition">
+          <button onClick={exportPdf} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3.5 py-2.5 text-sm font-medium hover:opacity-90 transition">
             <Download className="size-4" /> Export PDF
           </button>
         </div>
@@ -141,4 +156,70 @@ function Grocery() {
       )}
     </div>
   );
+}
+
+function downloadTextPdf(filename: string, lines: string[]) {
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const margin = 48;
+  const lineHeight = 16;
+  const maxLinesPerPage = Math.floor((pageHeight - margin * 2) / lineHeight);
+  const pages: string[][] = [];
+  for (let i = 0; i < lines.length; i += maxLinesPerPage) {
+    pages.push(lines.slice(i, i + maxLinesPerPage));
+  }
+
+  const objects: string[] = [];
+  const addObject = (body: string) => {
+    objects.push(body);
+    return objects.length;
+  };
+
+  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const pageIds: number[] = [];
+
+  pages.forEach((pageLines) => {
+    const text = pageLines
+      .map((line, index) => {
+        const y = pageHeight - margin - index * lineHeight;
+        return `BT /F1 11 Tf ${margin} ${y} Td (${escapePdfText(line)}) Tj ET`;
+      })
+      .join("\n");
+    const contentId = addObject(`<< /Length ${text.length} >>\nstream\n${text}\nendstream`);
+    const pageId = addObject(`<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    pageIds.push(pageId);
+  });
+
+  const pagesId = addObject(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`);
+  pageIds.forEach((pageId) => {
+    objects[pageId - 1] = objects[pageId - 1].replace("/Parent 0 0 R", `/Parent ${pagesId} 0 R`);
+  });
+  const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((body, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  const blob = new Blob([pdf], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapePdfText(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }

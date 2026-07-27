@@ -221,9 +221,13 @@ function MealPlans() {
             <option value={0}>This week</option>
             <option value={1}>Next week</option>
           </select>
-          <button onClick={generate} disabled={generating || (!!storage.getUserId() && !isAdmin && credits <= 0)} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-soft">
+          <button
+            onClick={!isAdmin && credits <= 0 ? requestMoreCredits : generate}
+            disabled={generating || creditRequested}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-soft"
+          >
             {generating ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            {generating ? "Generating…" : !isAdmin && credits <= 0 ? "Ask admin for credits" : "Generate new plan"}
+            {generating ? "Generating…" : !isAdmin && credits <= 0 ? (creditRequested ? "Request sent" : "Ask admin for credits") : "Generate new plan"}
           </button>
         </div>
       </header>
