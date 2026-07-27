@@ -114,6 +114,10 @@ function MealPlans() {
         }
         if ("telegram_sent" in result && result.telegram_sent) {
           toast.success("Sent to Telegram for approval");
+        } else if ("whatsapp_queued" in result && result.whatsapp_queued && "telegram_queued" in result && result.telegram_queued) {
+          toast.success("Sent to Telegram and WhatsApp for approval");
+        } else if ("whatsapp_queued" in result && result.whatsapp_queued) {
+          toast.success("Sent to WhatsApp for approval");
         } else if ("telegram_queued" in result && result.telegram_queued) {
           toast.success("Telegram send queued", { description: "Your plan will arrive shortly." });
         } else if ("auto_approved" in result && result.auto_approved) {

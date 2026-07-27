@@ -210,6 +210,15 @@ async def send_plan_to_telegram_background(telegram_id: str, generated_plan: dic
         print(f"⚠️ Telegram background send failed: {exc}")
 
 
+async def send_plan_to_whatsapp_background(whatsapp_number: str, generated_plan: dict) -> None:
+    try:
+        from whatsapp_bot import send_plan_for_approval
+
+        await asyncio.to_thread(send_plan_for_approval, whatsapp_number, generated_plan)
+    except Exception as exc:
+        print(f"⚠️ WhatsApp background send failed: {exc}")
+
+
 def telegram_api(method: str, payload: dict) -> None:
     if not TELEGRAM_BOT_TOKEN:
         print("⚠️ Telegram bot token is not configured")
@@ -1269,11 +1278,16 @@ async def plan_generate(user_id: str, payload: Optional[GeneratePlanRequest] = N
         plan["credits_unlimited"] = is_admin
 
         telegram_id = str(user.get("telegram_id") or "").strip()
-        if telegram_id:
+        whatsapp_number = str(user.get("whatsapp_number") or "").strip()
+        needs_external_approval = bool(telegram_id or whatsapp_number)
+        if needs_external_approval:
             plan["status"] = "pending"
             for day in plan.get("days") or []:
                 day["status"] = "pending"
-            asyncio.create_task(send_plan_to_telegram_background(telegram_id, generated_plan))
+            if whatsapp_number:
+                asyncio.create_task(send_plan_to_whatsapp_background(whatsapp_number, generated_plan))
+            if telegram_id:
+                asyncio.create_task(send_plan_to_telegram_background(telegram_id, generated_plan))
         else:
             plan_id = str(generated_plan.get("plan_id") or plan.get("id") or "").strip()
             if plan_id:
@@ -1285,7 +1299,8 @@ async def plan_generate(user_id: str, payload: Optional[GeneratePlanRequest] = N
         return {
             "plan": plan,
             "telegram_queued": bool(telegram_id),
-            "auto_approved": not bool(telegram_id),
+            "whatsapp_queued": bool(whatsapp_number),
+            "auto_approved": not needs_external_approval,
             "credits_remaining": credit_result.get("credits", 0),
             "credits_unlimited": is_admin,
         }
