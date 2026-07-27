@@ -101,4 +101,5 @@ def normalize_family_member(member: Dict[str, Any]) -> Dict[str, Any]:
         "allergies": allergies,
         "preferences": preferences,
         "telegram": member.get("telegram", ""),
+        "whatsapp": member.get("whatsapp", "") or member.get("whatsapp_number", ""),
     }

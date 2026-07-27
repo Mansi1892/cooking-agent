@@ -33,6 +33,7 @@ function Profile() {
       goal: "maintenance",
       weekly_budget: 0,
       telegram: storage.getTelegram() || "",
+      whatsapp: storage.getWhatsapp() || "",
       dietary_preference: "",
       allergies: [],
       preferences: [],
@@ -53,6 +54,7 @@ function Profile() {
         storage.setCredits(Number(result.profile.credits ?? storage.getCredits()));
         storage.setRole(result.profile.role || storage.getRole());
         storage.setTelegram(freshProfile.telegram || "");
+        storage.setWhatsapp(freshProfile.whatsapp || "");
       }).catch(() => {});
       api.getStreak(userId).then((result) => {
         storage.setStreak(result.streak);
@@ -77,7 +79,7 @@ function Profile() {
   }
 
   function addFamily() {
-    update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "" }] });
+    update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "", whatsapp: "" }] });
   }
 
   function removeFamily(index: number) {
@@ -101,12 +103,14 @@ function Profile() {
         storage.setUserName(updatedProfile.name);
         storage.setGoal(updatedProfile.goal);
         storage.setTelegram(updatedProfile.telegram || "");
+        storage.setWhatsapp(updatedProfile.whatsapp || "");
         setSavedProfile(updatedProfile);
       } else {
         storage.setProfile(payload);
         storage.setUserName(payload.name);
         storage.setGoal(payload.goal);
         storage.setTelegram(payload.telegram || "");
+        storage.setWhatsapp(payload.whatsapp || "");
         setSavedProfile(payload);
       }
       setIsEditing(false);
@@ -178,6 +182,7 @@ function Profile() {
               <Detail label="Dietary preference" value={profile.dietary_preference || "Not set"} />
               <Detail label="Weekly meal budget" value={profile.weekly_budget ? `₹${profile.weekly_budget}` : "Not set"} />
               <Detail label="Telegram chat ID" value={profile.telegram || "Not added"} />
+              <Detail label="WhatsApp number" value={profile.whatsapp || "Not added"} />
               <Detail label="Allergies" value={(profile.allergies ?? []).join(", ") || "None"} />
               <Detail label="Preferences" value={(profile.preferences ?? []).join(", ") || "None"} />
             </div>
@@ -198,6 +203,7 @@ function Profile() {
                     <Detail label="Allergies" value={(member.allergies ?? []).join(", ") || "None"} compact />
                     <Detail label="Preferences" value={(member.preferences ?? []).join(", ") || "None"} compact />
                     <Detail label="Telegram" value={member.telegram || "Not added"} compact />
+                    <Detail label="WhatsApp" value={member.whatsapp || "Not added"} compact />
                   </div>
                 </div>
               ))}
@@ -257,6 +263,9 @@ function Profile() {
           </Field>
           <Field label="Telegram chat ID">
             <input className={input()} value={profile.telegram ?? ""} onChange={(e) => update({ telegram: e.target.value })} placeholder="Optional" />
+          </Field>
+          <Field label="WhatsApp number" hint="Use country code, no +. Example: 919876543210">
+            <input className={input()} value={profile.whatsapp ?? ""} onChange={(e) => update({ whatsapp: e.target.value })} placeholder="Optional" />
           </Field>
           <Field label="Allergies">
             <input className={input()} value={(profile as any)._allergiesText ?? (profile.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: splitList(e.target.value), _allergiesText: e.target.value } as any)} placeholder="Optional" />
@@ -328,6 +337,9 @@ function Profile() {
                   <Field label="Telegram chat ID">
                     <input className={input()} value={member.telegram ?? ""} onChange={(e) => patchFamily(index, { telegram: e.target.value })} placeholder="Optional" />
                   </Field>
+                  <Field label="WhatsApp number">
+                    <input className={input()} value={member.whatsapp ?? ""} onChange={(e) => patchFamily(index, { whatsapp: e.target.value })} placeholder="Optional" />
+                  </Field>
                 </div>
                 <button onClick={() => removeFamily(index)} className="self-start inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition">
                   <Trash2 className="size-3.5" /> Delete family member
@@ -352,6 +364,7 @@ function normalizeProfile(raw: any): OnboardPayload {
     goal: raw?.goal || "maintenance",
     weekly_budget: Number(raw?.weekly_budget ?? raw?.budget_weekly ?? 0),
     telegram: raw?.telegram ?? raw?.telegram_id ?? "",
+    whatsapp: raw?.whatsapp ?? raw?.whatsapp_number ?? "",
     dietary_preference: raw?.dietary_preference ?? raw?.dietary_type ?? "",
     allergies: raw?.allergies || [],
     preferences: raw?.preferences || [],
@@ -366,6 +379,7 @@ function normalizeProfile(raw: any): OnboardPayload {
       allergies: member.allergies || [],
       preferences: member.preferences || [],
       telegram: member.telegram || "",
+      whatsapp: member.whatsapp || member.whatsapp_number || "",
     })),
   };
 }

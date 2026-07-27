@@ -31,6 +31,7 @@ function Onboarding() {
     height: 0,
     weekly_budget: 0,
     telegram: "",
+    whatsapp: "",
     goal: "" as OnboardPayload["goal"],
     dietary_preference: "",
     allergies: [],
@@ -115,6 +116,7 @@ function Onboarding() {
       storage.setUserName(form.name);
       storage.setGoal(form.goal);
       if (form.telegram) storage.setTelegram(form.telegram);
+      if (form.whatsapp) storage.setWhatsapp(form.whatsapp);
       storage.setProfile(payload);
       setStep(3);
     } catch (error) {
@@ -227,6 +229,7 @@ function restoreProfile(profile: any, authUser?: { email?: string; name?: string
   storage.setCredits(Number(profile.credits ?? 3));
   storage.setRole(profile.role || "user");
   storage.setTelegram(profile.telegram_id || "");
+  storage.setWhatsapp(profile.whatsapp_number || "");
   storage.setProfile({
     name,
     email,
@@ -236,6 +239,7 @@ function restoreProfile(profile: any, authUser?: { email?: string; name?: string
     height: profile.height_cm,
     weekly_budget: profile.budget_weekly,
     telegram: profile.telegram_id,
+    whatsapp: profile.whatsapp_number,
     goal: profile.goal,
     dietary_preference: profile.dietary_type,
     allergies: profile.allergies || [],
@@ -364,6 +368,9 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
         <Field label="Telegram chat ID (optional)" hint="Open the bot and send /start to get this number">
           <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value })} placeholder="Optional" />
         </Field>
+        <Field label="WhatsApp number (optional)" hint="Use country code, no +. Example: 919876543210">
+          <input className={input()} value={form.whatsapp ?? ""} onChange={(e) => update({ whatsapp: e.target.value })} placeholder="Optional" />
+        </Field>
       </div>
 
       <div className="mt-8 grid sm:grid-cols-2 gap-4">
@@ -438,7 +445,7 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
   const family = form.family ?? [];
   const errors = validateFamily(family);
 
-  const add = () => update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "" }] });
+  const add = () => update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "", whatsapp: "" }] });
   const remove = (i: number) => update({ family: family.filter((_, idx) => idx !== i) });
   const patch = (i: number, p: Partial<FamilyMember>) =>
     update({ family: family.map((m, idx) => (idx === i ? { ...m, ...p } : m)) });
@@ -506,6 +513,9 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                 <Field label="Telegram chat ID (optional)">
                   <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="Optional" />
                 </Field>
+                <Field label="WhatsApp number (optional)">
+                  <input className={input()} value={m.whatsapp ?? ""} onChange={(e) => patch(i, { whatsapp: e.target.value })} placeholder="Optional" />
+                </Field>
               </div>
               <button onClick={() => remove(i)} className="size-8 rounded-md hover:bg-muted text-text-light hover:text-destructive grid place-items-center transition">
                 <X className="size-4" />
@@ -545,6 +555,7 @@ function StepReview({ form }: { form: OnboardPayload }) {
             <Row k="Preferences" v={(form.preferences ?? []).join(", ") || "None"} />
             <Row k="Weekly budget" v={`₹${form.weekly_budget}`} />
             {form.telegram && <Row k="Telegram" v={form.telegram} />}
+            {form.whatsapp && <Row k="WhatsApp" v={form.whatsapp} />}
           </dl>
         </section>
 

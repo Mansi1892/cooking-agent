@@ -18,7 +18,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None, gender=""):
+def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None, gender="", whatsapp_number=""):
     payload = {
         "name": name,
         "email": (email or "").strip().lower(),
@@ -28,6 +28,7 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         "height_cm": height_cm,
         "goal": goal,
         "telegram_id": telegram_id,
+        "whatsapp_number": whatsapp_number or "",
         "budget_weekly": budget_weekly,
         "credits": FREE_PLAN_CREDITS,
         "role": "user",
@@ -56,7 +57,11 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         return user_record
     except Exception as exc:
         print(f"⚠️ Error creating user: {exc}")
-        fallback_payload = {k: v for k, v in payload.items() if k != "gender"}
+        fallback_payload = {
+            k: v
+            for k, v in payload.items()
+            if k not in {"gender", "whatsapp_number"}
+        }
         try:
             result = supabase.table("users").insert(fallback_payload).select("*").execute()
             user_record = result.data[0] if result.data else {}
@@ -122,6 +127,7 @@ def update_user(user_id, updates):
         "goal",
         "gender",
         "telegram_id",
+        "whatsapp_number",
         "budget_weekly",
         "dietary_type",
         "dietary_preferences",
@@ -144,8 +150,12 @@ def update_user(user_id, updates):
         return result.data[0] if result.data else {}
     except Exception as exc:
         print(f"⚠️ Error updating user {user_id}: {exc}")
-        if "gender" in payload:
-            fallback_payload = {k: v for k, v in payload.items() if k != "gender"}
+        if "gender" in payload or "whatsapp_number" in payload:
+            fallback_payload = {
+                k: v
+                for k, v in payload.items()
+                if k not in {"gender", "whatsapp_number"}
+            }
             try:
                 result = (
                     supabase.table("users")
@@ -339,6 +349,7 @@ def add_family_member(
     allergies,
     preferences,
     telegram="",
+    whatsapp="",
     goal="maintenance",
     gender="",
     weight_kg=0,
@@ -359,6 +370,8 @@ def add_family_member(
 
     if telegram:
         payload["telegram"] = telegram
+    if whatsapp:
+        payload["whatsapp"] = whatsapp
 
     try:
         result = supabase.table("family_members").insert(payload).select("*").execute()
@@ -368,7 +381,7 @@ def add_family_member(
         fallback_payload = {
             k: v
             for k, v in payload.items()
-            if k not in {"telegram", "goal", "gender", "weight_kg", "height_cm"}
+            if k not in {"telegram", "whatsapp", "goal", "gender", "weight_kg", "height_cm"}
         }
         try:
             result = supabase.table("family_members").insert(fallback_payload).select("*").execute()
@@ -404,6 +417,7 @@ def replace_family_members(user_id, members):
             allergies=member.get("allergies", []),
             preferences=member.get("preferences", []),
             telegram=member.get("telegram", ""),
+            whatsapp=member.get("whatsapp", "") or member.get("whatsapp_number", ""),
             goal=member.get("goal", "maintenance"),
             gender=member.get("gender", ""),
             weight_kg=member.get("weight_kg", 0),

@@ -6,6 +6,7 @@ const KEYS = {
   userName: "mpa_user_name",
   userGoal: "mpa_user_goal",
   telegram: "mpa_telegram_id",
+  whatsapp: "mpa_whatsapp_number",
   authUser: "mpa_auth_user",
   streak: "mpa_streak",
   profile: "mpa_profile",
@@ -60,6 +61,8 @@ export const storage = {
   setGoal: (v: string) => write(KEYS.userGoal, v),
   getTelegram: () => read(KEYS.telegram),
   setTelegram: (v: string) => write(KEYS.telegram, v),
+  getWhatsapp: () => read(KEYS.whatsapp),
+  setWhatsapp: (v: string) => write(KEYS.whatsapp, v),
   getAuthUser: <T = any>(): T | null => {
     const raw = read(KEYS.authUser);
     if (!raw) return null;
@@ -95,6 +98,7 @@ export const storage = {
       KEYS.userName,
       KEYS.userGoal,
       KEYS.telegram,
+      KEYS.whatsapp,
       KEYS.streak,
       KEYS.profile,
       KEYS.lastPlanId,

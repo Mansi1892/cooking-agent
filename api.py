@@ -4,7 +4,7 @@ import json
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -40,7 +40,7 @@ from database import (
 from agent import attach_people_plans, generate_meal_plan
 from tools import openai_client, tavily_search
 from onboarding_utils import normalize_dietary_type, normalize_family_member
-from config import TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN, WHATSAPP_VERIFY_TOKEN
 
 app = FastAPI(title="Smart Meal AI API")
 GENERATING_USERS = set()
@@ -71,6 +71,8 @@ class UserProfile(BaseModel):
     budget_weekly: Optional[float] = 0
     telegram: Optional[str] = None
     telegram_id: Optional[str] = None
+    whatsapp: Optional[str] = None
+    whatsapp_number: Optional[str] = None
     dietary_preference: Optional[str] = None
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
     allergies: Optional[List[str]] = Field(default_factory=list)
@@ -92,6 +94,8 @@ class FamilyMember(BaseModel):
     allergies: Optional[List[str]] = Field(default_factory=list)
     preferences: Optional[List[str]] = Field(default_factory=list)
     telegram: Optional[str] = None
+    whatsapp: Optional[str] = None
+    whatsapp_number: Optional[str] = None
 
 
 class OnboardingRequest(BaseModel):
@@ -111,6 +115,8 @@ class OnboardingRequest(BaseModel):
     budget_weekly: Optional[float] = 0
     telegram: Optional[str] = None
     telegram_id: Optional[str] = None
+    whatsapp: Optional[str] = None
+    whatsapp_number: Optional[str] = None
     dietary_preference: Optional[str] = None
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
     allergies: Optional[List[str]] = Field(default_factory=list)
@@ -304,6 +310,63 @@ async def api_telegram_webhook(request: Request):
     return await telegram_webhook(request)
 
 
+def verify_whatsapp_webhook(request: Request) -> Response:
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    expected_token = WHATSAPP_VERIFY_TOKEN or "smartmeal_whatsapp_verify"
+
+    if mode == "subscribe" and token == expected_token and challenge:
+        return Response(content=challenge, media_type="text/plain")
+    raise HTTPException(status_code=403, detail="WhatsApp webhook verification failed")
+
+
+async def handle_whatsapp_update(update: dict) -> dict:
+    entry = (update.get("entry") or [{}])[0]
+    change = ((entry.get("changes") or [{}])[0]).get("value") or {}
+    messages = change.get("messages") or []
+    if not messages:
+        return {"ok": True, "action": "ignored"}
+
+    message = messages[0]
+    button = message.get("button") or {}
+    interactive = message.get("interactive") or {}
+    button_reply = interactive.get("button_reply") or {}
+    text_body = (message.get("text") or {}).get("body") or ""
+    action_id = button_reply.get("id") or button.get("payload") or text_body
+
+    if str(action_id).startswith("approve_"):
+        plan_id = str(action_id).split("_", 1)[1]
+        update_plan_status(plan_id, "approved")
+        return {"ok": True, "action": "approved", "plan_id": plan_id}
+
+    if str(action_id).startswith("reject_"):
+        plan_id = str(action_id).split("_", 1)[1]
+        return {"ok": True, "action": "reject_prompted", "plan_id": plan_id}
+
+    return {"ok": True, "action": "ignored"}
+
+
+@app.get("/whatsapp/webhook")
+async def whatsapp_webhook_verify(request: Request):
+    return verify_whatsapp_webhook(request)
+
+
+@app.get("/api/whatsapp/webhook")
+async def api_whatsapp_webhook_verify(request: Request):
+    return verify_whatsapp_webhook(request)
+
+
+@app.post("/whatsapp/webhook")
+async def whatsapp_webhook(request: Request):
+    return await handle_whatsapp_update(await request.json())
+
+
+@app.post("/api/whatsapp/webhook")
+async def api_whatsapp_webhook(request: Request):
+    return await whatsapp_webhook(request)
+
+
 # --- Health Check ---
 
 @app.get("/health")
@@ -431,6 +494,7 @@ async def onboard(payload: OnboardingRequest):
     if budget_weekly < 1500:
         raise HTTPException(status_code=400, detail="Weekly meal budget is too low. Minimum is ₹1500.")
     telegram_id = user_data.get("telegram_id") or user_data.get("telegram") or ""
+    whatsapp_number = user_data.get("whatsapp_number") or user_data.get("whatsapp") or ""
     dietary_preference = user_data.get("dietary_preference") or None
     dietary_preferences = (
         [dietary_preference]
@@ -454,6 +518,7 @@ async def onboard(payload: OnboardingRequest):
         "height_cm": height_cm,
         "goal": goal,
         "telegram_id": telegram_id,
+        "whatsapp_number": whatsapp_number,
         "budget_weekly": budget_weekly,
         "dietary_type": dietary_type,
         "dietary_preferences": dietary_preferences,
@@ -473,6 +538,7 @@ async def onboard(payload: OnboardingRequest):
         height_cm=height_cm,
         goal=goal,
         telegram_id=telegram_id,
+        whatsapp_number=whatsapp_number,
         budget_weekly=budget_weekly,
         dietary_type=dietary_type,
         dietary_preferences=dietary_preferences,
@@ -498,6 +564,7 @@ async def onboard(payload: OnboardingRequest):
             allergies=member.get("allergies", []),
             preferences=member.get("preferences", []),
             telegram=member.get("telegram", ""),
+            whatsapp=member.get("whatsapp", "") or member.get("whatsapp_number", ""),
             goal=member.get("goal", "maintenance"),
             gender=member.get("gender", ""),
             weight_kg=member.get("weight_kg", 0),
@@ -515,6 +582,7 @@ async def onboard(payload: OnboardingRequest):
         "height_cm": height_cm,
         "goal": goal,
         "telegram_id": telegram_id,
+        "whatsapp_number": whatsapp_number,
         "budget_weekly": budget_weekly,
         "dietary_type": dietary_type,
         "dietary_preferences": dietary_preferences,
@@ -597,6 +665,11 @@ async def update_profile(user_id: str, payload: ProfileUpdateRequest):
         telegram_update = user_data.get("telegram")
     if telegram_update is None:
         telegram_update = existing.get("telegram_id") or ""
+    whatsapp_update = user_data.get("whatsapp_number")
+    if whatsapp_update is None:
+        whatsapp_update = user_data.get("whatsapp")
+    if whatsapp_update is None:
+        whatsapp_update = existing.get("whatsapp_number") or ""
 
     updates = {
         "name": user_data.get("name", existing.get("name")),
@@ -607,6 +680,7 @@ async def update_profile(user_id: str, payload: ProfileUpdateRequest):
         "height_cm": user_data.get("height_cm") or user_data.get("height") or existing.get("height_cm"),
         "goal": user_data.get("goal", existing.get("goal")),
         "telegram_id": str(telegram_update).strip(),
+        "whatsapp_number": str(whatsapp_update).strip(),
         "budget_weekly": budget_weekly,
         "dietary_type": normalize_dietary_type(
             dietary_preference

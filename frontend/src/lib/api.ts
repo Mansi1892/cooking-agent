@@ -74,6 +74,8 @@ export type FamilyMember = {
   allergies?: string[];
   preferences?: string[];
   telegram?: string;
+  whatsapp?: string;
+  whatsapp_number?: string;
 };
 
 export type OnboardPayload = {
@@ -86,6 +88,8 @@ export type OnboardPayload = {
   goal: "weight_loss" | "muscle_gain" | "maintenance";
   weekly_budget: number;
   telegram?: string;
+  whatsapp?: string;
+  whatsapp_number?: string;
   dietary_preference?: string;
   allergies?: string[];
   preferences?: string[];
@@ -135,6 +139,7 @@ export type UserProfile = OnboardPayload & {
   credits?: number;
   budget_weekly?: number;
   telegram_id?: string;
+  whatsapp_number?: string;
   dietary_type?: string;
   created_at?: string;
 };

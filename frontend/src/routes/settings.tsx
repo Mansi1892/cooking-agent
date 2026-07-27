@@ -16,6 +16,7 @@ function Settings() {
   const userId = storage.getUserId();
   const authUser = storage.getAuthUser<any>();
   const telegram = profile.telegram || profile.telegram_id || storage.getTelegram() || "";
+  const whatsapp = profile.whatsapp || profile.whatsapp_number || storage.getWhatsapp() || "";
 
   useEffect(() => {
     setProfile(storage.getProfile() || {});
@@ -29,6 +30,7 @@ function Settings() {
         storage.setCredits(Number(result.profile.credits ?? storage.getCredits()));
         storage.setRole(result.profile.role || storage.getRole());
         storage.setTelegram(freshProfile.telegram || "");
+        storage.setWhatsapp(freshProfile.whatsapp || "");
       }).catch(() => {});
     }
   }, [userId]);
@@ -122,6 +124,27 @@ function Settings() {
         </div>
       </section>
 
+      <section className="rounded-xl border border-border bg-surface shadow-soft p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="size-10 rounded-lg bg-primary-light grid place-items-center text-primary">
+            <Bell className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">WhatsApp Notifications</h2>
+            <p className="text-sm text-text-secondary mt-1">Meal plan approve/reject will use this number after WhatsApp sending is enabled.</p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-background px-3.5 py-3">
+          <div className="text-xs font-medium text-text-secondary">Current WhatsApp number</div>
+          <div className="mt-1 text-sm font-medium">{whatsapp || "Not added"}</div>
+        </div>
+
+        <Link to="/profile" className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition">
+          <UserCog className="size-4" /> Edit profile
+        </Link>
+      </section>
+
       <section className="rounded-xl border border-border bg-surface shadow-soft p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -152,6 +175,7 @@ function normalizeProfile(raw: any) {
     goal: raw?.goal || "maintenance",
     weekly_budget: Number(raw?.weekly_budget ?? raw?.budget_weekly ?? 2500),
     telegram: raw?.telegram ?? raw?.telegram_id ?? "",
+    whatsapp: raw?.whatsapp ?? raw?.whatsapp_number ?? "",
     dietary_preference: raw?.dietary_preference ?? raw?.dietary_type ?? "Vegetarian",
     allergies: raw?.allergies || [],
     preferences: raw?.preferences || [],

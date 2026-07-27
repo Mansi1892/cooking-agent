@@ -65,6 +65,7 @@ function Login() {
       storage.setCredits(Number(existingProfile.credits ?? 3));
       storage.setRole(existingProfile.role || "user");
       storage.setTelegram(existingProfile.telegram_id || "");
+      storage.setWhatsapp(existingProfile.whatsapp_number || "");
       storage.setProfile({
         name: existingProfile.name || cleanName,
         email: cleanEmail,
@@ -73,6 +74,7 @@ function Login() {
         height: existingProfile.height_cm,
         weekly_budget: existingProfile.budget_weekly,
         telegram: existingProfile.telegram_id,
+        whatsapp: existingProfile.whatsapp_number,
         goal: existingProfile.goal,
         dietary_preference: existingProfile.dietary_type,
         allergies: existingProfile.allergies || [],

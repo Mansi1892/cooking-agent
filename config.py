@@ -18,6 +18,11 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+# WhatsApp Cloud API
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
+WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+
 # Health goal targets — hardcoded because these are
 # standard medical nutrition guidelines, not AI's job
 GOAL_TARGETS = {
