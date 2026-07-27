@@ -1,6 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Sparkles } from "lucide-react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { AppSidebar, MobileTabBar } from "./app-sidebar";
 import { storage } from "@/lib/storage";
 
@@ -40,12 +39,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <MobileTabBar />
-      <Link
-        to="/meal-plans"
-        className="md:hidden fixed bottom-20 right-5 z-40 rounded-full hero-gradient text-white px-5 py-3 shadow-glow text-sm font-medium flex items-center gap-2"
-      >
-        <Sparkles className="size-4" /> Generate
-      </Link>
     </div>
   );
 }
