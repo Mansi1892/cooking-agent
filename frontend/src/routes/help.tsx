@@ -35,10 +35,11 @@ function Help() {
   const [submittedId, setSubmittedId] = useState<number | null>(null);
 
   const pageUrl = useMemo(() => (typeof window !== "undefined" ? window.location.href : ""), []);
-  const canSubmit = title.trim().length >= 3 && description.trim().length >= 10 && !submitting;
+  const hasEnoughDetails = title.trim().length >= 3 && description.trim().length >= 10;
 
-async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     let userId = storage.getUserId();
     if (!userId) {
       const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
@@ -63,7 +64,7 @@ async function submit(e: React.FormEvent) {
         return;
       }
     }
-    if (!canSubmit) {
+    if (!hasEnoughDetails) {
       toast.error("Add a short title and details");
       return;
     }
@@ -165,7 +166,7 @@ async function submit(e: React.FormEvent) {
           <span>Current page is attached automatically: {pageUrl || "Unavailable"}</span>
         </div>
 
-        <button disabled={!canSubmit} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-60 transition">
+        <button disabled={submitting} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-60 transition">
           {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
           Submit issue
         </button>
