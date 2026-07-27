@@ -134,32 +134,27 @@ http://localhost:8080/
 
 ## Deployment
 
-The frontend and backend deploy separately:
+The production app is deployed as one Vercel project. The React/TanStack frontend and FastAPI backend share the same domain; backend requests go through `/api`.
 
-- Frontend: Vercel
-- Backend API: Render/Railway/Fly-style Python web service
-- Database: Supabase
-
-Current Vercel frontend deployment:
+Current Vercel deployment:
 
 ```text
-https://frontend-orpin-zeta-59.vercel.app
+https://smart-meal-ai-one.vercel.app
 ```
 
-### Backend On Render
-
-The repo includes `render.yaml` for a Render web service.
-
-1. Open Render and create a new Blueprint/Web Service from the GitHub repo.
-2. Use the repo root as the backend root, not `frontend`.
-3. Render should use:
+Production checks:
 
 ```bash
-pip install -r requirements.txt
-uvicorn api:app --host 0.0.0.0 --port $PORT
+curl https://smart-meal-ai-one.vercel.app/api/health
 ```
 
-4. Add these Render environment variables:
+Expected:
+
+```json
+{"status":"ok"}
+```
+
+Required Vercel environment variables:
 
 ```env
 OPENAI_API_KEY=...
@@ -171,25 +166,14 @@ TELEGRAM_BOT_TOKEN=...
 ADMIN_PASSWORD=...
 ```
 
-5. After Render gives a backend URL, verify:
+The old split Vercel projects were removed. Use `smart-meal-ai-one` for new Vercel deployments.
+
+Deploy from local:
 
 ```bash
-curl https://your-render-api-url/health
+./scripts/build_vercel_combined.sh
+npx vercel deploy --prebuilt --prod --project smart-meal-ai-one
 ```
-
-Expected:
-
-```json
-{"status":"ok"}
-```
-
-6. In Vercel project settings, add:
-
-```env
-VITE_API_URL=https://your-render-api-url
-```
-
-Then redeploy the Vercel frontend.
 
 ## User Flow
 

@@ -21,3 +21,5 @@ venv/
 .vercel
 pyproject.toml
 uv.lock
+.env.local
+.env.*.local

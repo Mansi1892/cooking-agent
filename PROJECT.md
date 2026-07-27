@@ -69,10 +69,10 @@ Smart Meal AI creates Indian household meal plans from a saved user profile, fam
 
 ## Deployment
 
-- Frontend is deployed on Vercel.
-- Backend should run as a Python web service on Render/Railway/Fly or similar.
-- This repo includes `render.yaml` for Render.
-- After backend deployment, set Vercel `VITE_API_URL` to the backend URL and redeploy the frontend.
+- Production is one Vercel project: `smart-meal-ai-one`.
+- Public app URL: `https://smart-meal-ai-one.vercel.app`.
+- Frontend and backend share the same domain; backend endpoints are served under `/api`.
+- The old split frontend/backend Vercel projects were removed.
 - Telegram approval buttons need the bot process/webhook strategy to be available in production. The API can send Telegram messages, while callback handling needs `telegram_bot.py` or a webhook-based replacement.
 
 ## Validation
