@@ -601,12 +601,14 @@ function splitList(value: string) {
 function sanitizePayload(payload: OnboardPayload): OnboardPayload {
   return {
     ...payload,
+    whatsapp_number: payload.whatsapp || payload.whatsapp_number || "",
     allergies: payload.allergies ?? [],
     preferences: payload.preferences ?? [],
     family: (payload.family ?? [])
       .filter((member) => member.name?.trim())
       .map(({ _allergiesText, _preferencesText, ...member }: any) => ({
         ...member,
+        whatsapp_number: member.whatsapp || member.whatsapp_number || "",
         allergies: member.allergies ?? [],
         preferences: member.preferences ?? [],
       })),

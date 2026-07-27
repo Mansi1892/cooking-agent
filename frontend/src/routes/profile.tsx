@@ -392,12 +392,14 @@ function sanitizeProfile(profile: OnboardPayload): OnboardPayload {
   const { _allergiesText, _preferencesText, ...cleanProfile } = profile as any;
   return {
     ...cleanProfile,
+    whatsapp_number: profile.whatsapp || profile.whatsapp_number || "",
     allergies: profile.allergies ?? [],
     preferences: profile.preferences ?? [],
     family: (profile.family ?? [])
       .filter((member) => member.name?.trim())
       .map(({ _allergiesText, _preferencesText, ...member }: any) => ({
         ...member,
+        whatsapp_number: member.whatsapp || member.whatsapp_number || "",
         allergies: member.allergies ?? [],
         preferences: member.preferences ?? [],
       })),

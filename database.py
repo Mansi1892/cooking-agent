@@ -150,11 +150,17 @@ def update_user(user_id, updates):
         return result.data[0] if result.data else {}
     except Exception as exc:
         print(f"⚠️ Error updating user {user_id}: {exc}")
-        if "gender" in payload or "whatsapp_number" in payload:
+        error_text = str(exc).lower()
+        fallback_keys = set()
+        if "gender" in payload and "gender" in error_text:
+            fallback_keys.add("gender")
+        if "whatsapp_number" in payload and "whatsapp_number" in error_text:
+            fallback_keys.add("whatsapp_number")
+        if fallback_keys:
             fallback_payload = {
                 k: v
                 for k, v in payload.items()
-                if k not in {"gender", "whatsapp_number"}
+                if k not in fallback_keys
             }
             try:
                 result = (
