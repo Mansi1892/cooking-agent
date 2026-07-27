@@ -1,7 +1,10 @@
 import os
 import asyncio
+import json
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -37,6 +40,7 @@ from database import (
 from agent import attach_people_plans, generate_meal_plan
 from tools import openai_client, tavily_search
 from onboarding_utils import normalize_dietary_type, normalize_family_member
+from config import TELEGRAM_BOT_TOKEN
 
 app = FastAPI(title="Smart Meal AI API")
 GENERATING_USERS = set()
@@ -198,6 +202,106 @@ async def send_plan_to_telegram_background(telegram_id: str, generated_plan: dic
         await send_plan_for_approval_async(telegram_id, generated_plan)
     except Exception as exc:
         print(f"⚠️ Telegram background send failed: {exc}")
+
+
+def telegram_api(method: str, payload: dict) -> None:
+    if not TELEGRAM_BOT_TOKEN:
+        print("⚠️ Telegram bot token is not configured")
+        return
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
+        data=data,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            response.read()
+    except Exception as exc:
+        print(f"⚠️ Telegram API {method} failed: {exc}")
+
+
+async def handle_telegram_update(update: dict) -> dict:
+    callback = update.get("callback_query") or {}
+    message = update.get("message") or {}
+
+    if callback:
+        callback_id = callback.get("id")
+        data = str(callback.get("data") or "")
+        from_user = callback.get("from") or {}
+        chat = (callback.get("message") or {}).get("chat") or {}
+        chat_id = chat.get("id") or from_user.get("id")
+        message_id = (callback.get("message") or {}).get("message_id")
+
+        if callback_id:
+            telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
+
+        if data.startswith("approve_"):
+            plan_id = data.split("_", 1)[1]
+            update_plan_status(plan_id, "approved")
+            if chat_id and message_id:
+                telegram_api("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id, "reply_markup": json.dumps({"inline_keyboard": []})})
+            if chat_id:
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": "Meal plan approved. Your browser/app will refresh to the approved plan."})
+            return {"ok": True, "action": "approved", "plan_id": plan_id}
+
+        if data.startswith("reject_"):
+            plan_id = data.split("_", 1)[1]
+            if chat_id:
+                telegram_api(
+                    "sendMessage",
+                    {
+                        "chat_id": chat_id,
+                        "text": f"Plan rejected. Reply with:\n/change {plan_id} what you want changed",
+                    },
+                )
+            return {"ok": True, "action": "reject_prompted", "plan_id": plan_id}
+
+    text = str(message.get("text") or "").strip()
+    chat = message.get("chat") or {}
+    from_user = message.get("from") or {}
+    chat_id = chat.get("id") or from_user.get("id")
+    telegram_id = str(from_user.get("id") or chat_id or "")
+
+    if text.startswith("/change "):
+        parts = text.split(" ", 2)
+        if len(parts) < 3:
+            if chat_id:
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": "Please send: /change PLAN_ID your requested changes"})
+            return {"ok": True, "action": "change_missing_feedback"}
+
+        plan_id, feedback_text = parts[1], parts[2].strip()
+        user = None
+        from database import get_user_by_telegram_id
+
+        user = get_user_by_telegram_id(telegram_id)
+        if not user:
+            if chat_id:
+                telegram_api("sendMessage", {"chat_id": chat_id, "text": "User not found for this Telegram chat ID. Save your chat ID in Profile and try again."})
+            return {"ok": False, "action": "user_not_found"}
+
+        if chat_id:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": "Regenerating your meal plan with that feedback..."})
+        save_feedback(plan_id, user.get("name") or "Telegram", 3, feedback_text, True)
+        updated_plan = generate_meal_plan(int(user.get("id")), feedback_text)
+        if updated_plan.get("status") == "success":
+            await send_plan_to_telegram_background(str(chat_id), updated_plan)
+            return {"ok": True, "action": "regenerated", "plan_id": updated_plan.get("plan_id")}
+        if chat_id:
+            telegram_api("sendMessage", {"chat_id": chat_id, "text": f"Could not regenerate plan: {updated_plan.get('message') or 'Unknown error'}"})
+        return {"ok": False, "action": "regenerate_failed"}
+
+    return {"ok": True, "action": "ignored"}
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    return await handle_telegram_update(await request.json())
+
+
+@app.post("/api/telegram/webhook")
+async def api_telegram_webhook(request: Request):
+    return await telegram_webhook(request)
 
 
 # --- Health Check ---

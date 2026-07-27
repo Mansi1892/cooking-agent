@@ -42,6 +42,7 @@ function MealPlans() {
   const [credits, setCredits] = useState(storage.getCredits());
   const [role, setRole] = useState(storage.getRole());
   const [creditRequested, setCreditRequested] = useState(false);
+  const [creditsExpired, setCreditsExpired] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [activePersonId, setActivePersonId] = useState<string>("");
   const [regeneratingDay, setRegeneratingDay] = useState<string>("");
@@ -54,6 +55,7 @@ function MealPlans() {
         storage.setCredits(nextCredits);
         storage.setRole(result.profile.role || "user");
         setCredits(nextCredits);
+        setCreditsExpired(nextCredits <= 0);
         setRole(result.profile.role || "user");
       }).catch(() => {});
     }
@@ -84,7 +86,8 @@ function MealPlans() {
     if (generating) return;
     const isAdmin = role === "admin";
     if (storage.getUserId() && !isAdmin && credits <= 0) {
-      toast.error("No meal plan credits left", { description: "You used your 3 free credits. Please ask admin to add more credits." });
+      setCreditsExpired(true);
+      toast.error("No meal plan credits left", { description: "Tap Request credits so admin can approve more." });
       return;
     }
     setGenerating(true);
@@ -119,7 +122,10 @@ function MealPlans() {
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (message.toLowerCase().includes("credit")) {
-          toast.error("No meal plan credits left", { description: message });
+          storage.setCredits(0);
+          setCredits(0);
+          setCreditsExpired(true);
+          toast.error("No meal plan credits left", { description: "Tap Request credits so admin can approve more." });
           return;
         }
         toast.error("Could not generate plan", { description: message || "Backend unavailable. Please try again." });
@@ -144,6 +150,7 @@ function MealPlans() {
     try {
       await api.requestCredits({ user_id: userId, requested_credits: 3, note: "User requested more meal plan credits." });
       setCreditRequested(true);
+      setCreditsExpired(true);
       toast.success("Credit request sent", { description: "Admin can now approve it from the Admin page." });
     } catch (error) {
       toast.error("Could not request credits", { description: error instanceof Error ? error.message : "Please try again." });
@@ -222,12 +229,12 @@ function MealPlans() {
             <option value={1}>Next week</option>
           </select>
           <button
-            onClick={!isAdmin && credits <= 0 ? requestMoreCredits : generate}
+            onClick={!isAdmin && (credits <= 0 || creditsExpired) ? requestMoreCredits : generate}
             disabled={generating || creditRequested}
             className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-60 shadow-soft"
           >
             {generating ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            {generating ? "Generating…" : !isAdmin && credits <= 0 ? (creditRequested ? "Request sent" : "Ask admin for credits") : "Generate new plan"}
+            {generating ? "Generating…" : !isAdmin && (credits <= 0 || creditsExpired) ? (creditRequested ? "Request sent" : "Request credits") : "Generate new plan"}
           </button>
         </div>
       </header>
@@ -255,7 +262,7 @@ function MealPlans() {
         </section>
       )}
 
-      {!isAdmin && credits <= 0 && !generating && (
+      {!isAdmin && (credits <= 0 || creditsExpired) && !generating && (
         <section className="rounded-2xl border border-warning/30 bg-warning/10 p-5 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-sm font-semibold">Credits expired</h2>
