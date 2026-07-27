@@ -37,12 +37,31 @@ function Help() {
   const pageUrl = useMemo(() => (typeof window !== "undefined" ? window.location.href : ""), []);
   const canSubmit = title.trim().length >= 3 && description.trim().length >= 10 && !submitting;
 
-  async function submit(e: React.FormEvent) {
+async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const userId = storage.getUserId();
+    let userId = storage.getUserId();
     if (!userId) {
-      toast.error("Please login first");
-      return;
+      const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
+      const email = authUser?.email?.trim().toLowerCase();
+      if (email) {
+        try {
+          const result = await api.getProfileByEmail(email);
+          const profile = result.profile;
+          userId = String(profile.id);
+          storage.setUserId(userId);
+          storage.setUserName(profile.name || authUser?.name || email);
+          storage.setGoal(profile.goal || "maintenance");
+          storage.setCredits(Number(profile.credits ?? storage.getCredits()));
+          storage.setRole(profile.role || "user");
+          storage.setTelegram(profile.telegram_id || "");
+        } catch {
+          toast.error("Profile not found", { description: "Please login again or complete signup before submitting an issue." });
+          return;
+        }
+      } else {
+        toast.error("Please login first");
+        return;
+      }
     }
     if (!canSubmit) {
       toast.error("Add a short title and details");
