@@ -36,14 +36,7 @@ function Login() {
     } catch {
       if (mode === "login") {
         storage.clearAll();
-        storage.setAuthUser({
-          name: cleanName,
-          email: cleanEmail,
-          logged_in_at: new Date().toISOString(),
-        });
-        storage.setUserName(cleanName);
-        toast.info("Profile not created yet", { description: "Complete onboarding once to create your saved profile." });
-        navigate({ to: "/onboarding" });
+        toast.error("Account not found", { description: "Please sign up first, or check the email address." });
         return;
       }
     }

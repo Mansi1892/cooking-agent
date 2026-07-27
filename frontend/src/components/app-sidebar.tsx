@@ -174,12 +174,40 @@ export function AppSidebar() {
 export function MobileTabBar() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const items = [
-    NAV[0],
-    NAV[1],
-    NAV[2],
-    NAV.find((item) => item.to === "/help")!,
-  ];
+  const [role, setRole] = useState(storage.getRole());
+  useEffect(() => {
+    function syncRole() {
+      setRole(storage.getRole());
+      const userId = storage.getUserId();
+      if (userId) {
+        api.getProfile(userId).then((result) => {
+          const nextRole = result.profile.role || "user";
+          storage.setRole(nextRole);
+          setRole(nextRole);
+        }).catch(() => {});
+      }
+    }
+    syncRole();
+    window.addEventListener("mpa-storage-change", syncRole);
+    window.addEventListener("focus", syncRole);
+    return () => {
+      window.removeEventListener("mpa-storage-change", syncRole);
+      window.removeEventListener("focus", syncRole);
+    };
+  }, [pathname]);
+  const items = role === "admin"
+    ? [
+        NAV[0],
+        NAV[1],
+        NAV[2],
+        { to: "/admin", label: "Admin", icon: ShieldCheck },
+      ]
+    : [
+        NAV[0],
+        NAV[1],
+        NAV[2],
+        NAV.find((item) => item.to === "/help")!,
+      ];
   const logout = () => {
     storage.logout();
     navigate({ to: "/login" });
