@@ -94,6 +94,11 @@ function Onboarding() {
     try {
       const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
       const payload = sanitizePayload({ ...form, email: authUser?.email || form.email || "" });
+      if (!payload.email?.trim()) {
+        toast.error("Please login again", { description: "Your email session was missing, so the profile cannot be saved." });
+        navigate({ to: "/login" });
+        return;
+      }
       const r = await api.onboard(payload);
       const id = r.user_id;
       const currentAuthUser = storage.getAuthUser();

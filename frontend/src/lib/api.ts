@@ -7,13 +7,22 @@ const BASE_URL =
   "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
+  const url = buildApiUrl(path, BASE_URL);
+  let res: Response;
+  try {
+    res = await fetch(url, requestInit(init));
+  } catch (error) {
+    const sameOriginUrl = buildApiUrl(path, "/api");
+    if (sameOriginUrl !== url) {
+      try {
+        res = await fetch(sameOriginUrl, requestInit(init));
+      } catch {
+        throw normalizeNetworkError(error);
+      }
+    } else {
+      throw normalizeNetworkError(error);
+    }
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -24,6 +33,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+function requestInit(init?: RequestInit): RequestInit {
+  return {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+  };
+}
+
+function buildApiUrl(path: string, baseUrl: string) {
+  const base = baseUrl.replace(/\/$/, "");
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  if (/^https?:\/\//i.test(base)) return `${base}${suffix}`;
+  if (typeof window === "undefined") return `${base}${suffix}`;
+  return new URL(`${base}${suffix}`, window.location.origin).toString();
+}
+
+function normalizeNetworkError(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  if (/load failed|failed to fetch|networkerror|fetch failed/i.test(raw)) {
+    return new Error("Network request failed. Please refresh the app and try again on the Vercel link.");
+  }
+  return error instanceof Error ? error : new Error(raw || "Network request failed.");
 }
 
 export type FamilyMember = {
