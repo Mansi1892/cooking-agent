@@ -8,11 +8,13 @@ cd "$ROOT_DIR"
 
 rm -rf "$TMP_API_FUNC"
 mkdir -p "$TMP_API_FUNC"
+rm -f "$ROOT_DIR/pyproject.toml" "$ROOT_DIR/uv.lock"
 
-npx vercel build --prod
+npx vercel build --prod --local-config "$ROOT_DIR/scripts/vercel.api.json"
 cp -R "$ROOT_DIR/.vercel/output/functions/api/index.py.func" "$TMP_API_FUNC/index.py.func"
 
 cd "$ROOT_DIR/frontend"
+npx vercel pull --yes --environment production --project smart-meal-ai-one
 npx vercel build --prod
 
 cd "$ROOT_DIR"
@@ -23,14 +25,51 @@ cp -R "$TMP_API_FUNC/index.py.func" "$ROOT_DIR/.vercel/output/functions/api/inde
 
 node - <<'NODE'
 const fs = require("fs");
-const path = ".vercel/output/config.json";
-const config = JSON.parse(fs.readFileSync(path, "utf8"));
+const configPath = ".vercel/output/config.json";
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 const routes = config.routes || [];
 config.routes = [
   { src: "^/api(?:/(.*))?$", dest: "/api/index.py" },
   ...routes.filter((route) => !(route.src && String(route.src).includes("/api"))),
 ];
-fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+
+const apiConfigPath = ".vercel/output/functions/api/index.py.func/.vc-config.json";
+const apiConfig = JSON.parse(fs.readFileSync(apiConfigPath, "utf8"));
+const backendFiles = new Set([
+  ".python-version",
+  ".vercelignore",
+  "requirements.txt",
+]);
+apiConfig.filePathMap = Object.fromEntries(
+  Object.entries(apiConfig.filePathMap || {}).filter(([source]) => {
+    const normalized = source.replace(/\\/g, "/");
+    const name = normalized.split("/").pop() || "";
+    if (
+      name === ".env" ||
+      name.startsWith(".env.") ||
+      normalized.includes("/.env") ||
+      normalized.includes("/.vercel/.env") ||
+      normalized.startsWith(".git/") ||
+      normalized.startsWith(".pytest_cache/") ||
+      normalized.startsWith(".vercel/") ||
+      normalized.startsWith("frontend/") ||
+      normalized.startsWith("node_modules/") ||
+      normalized === "pyproject.toml" ||
+      normalized === "uv.lock"
+    ) {
+      return false;
+    }
+    return (
+      backendFiles.has(normalized) ||
+      (/^[^/]+\.py$/.test(normalized) && normalized !== "test_flow.py") ||
+      normalized.startsWith("api/") ||
+      normalized.startsWith("data/") ||
+      normalized.startsWith("_vendor/")
+    );
+  })
+);
+fs.writeFileSync(apiConfigPath, JSON.stringify(apiConfig, null, 2) + "\n");
 NODE
 
 echo "Combined Vercel output ready at .vercel/output"

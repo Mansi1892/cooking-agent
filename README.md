@@ -163,6 +163,7 @@ SUPABASE_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 TAVILY_API_KEY=...
 TELEGRAM_BOT_TOKEN=...
+FRONTEND_DEV_URL=https://smart-meal-ai-one.vercel.app
 ADMIN_PASSWORD=...
 ```
 
@@ -171,9 +172,10 @@ The old split Vercel projects were removed. Use `smart-meal-ai-one` for new Verc
 Deploy from local:
 
 ```bash
-./scripts/build_vercel_combined.sh
-npx vercel deploy --prebuilt --prod --project smart-meal-ai-one
+./scripts/deploy_vercel_combined.sh
 ```
+
+The deploy script builds the FastAPI function with `scripts/vercel.api.json`, builds the frontend, merges both into one Vercel Build Output, excludes local `.env` files, and deploys from a clean temp folder.
 
 ## User Flow
 
