@@ -225,6 +225,7 @@ export const api = {
   generateRecipe: (payload: { user_id: string; meal_name: string; meal_type?: string }) => request<{ recipe: Recipe }>("/recipe/generate", { method: "POST", body: JSON.stringify(payload) }),
   regeneratePersonDay: (payload: { user_id: string; plan_id: string; person_id: string; day: string; feedback: string }) => request<{ plan: MealPlan; override: any }>("/plan/regenerate-person-day", { method: "POST", body: JSON.stringify(payload) }),
   testTelegram: (userId: string) => request<{ sent: boolean }>(`/telegram/test/${userId}`, { method: "POST" }),
+  testWhatsapp: (userId: string) => request<{ sent: boolean }>(`/whatsapp/test/${userId}`, { method: "POST" }),
   getPlan: (planId: string) => request<MealPlan>(`/plan/${planId}`),
   getHistory: async (userId: string) => {
     const response = await request<HistoryItem[] | { history: HistoryItem[] }>(`/history/${userId}`);

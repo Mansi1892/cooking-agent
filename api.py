@@ -1367,6 +1367,30 @@ async def api_telegram_test(user_id: str):
     return await telegram_test(user_id)
 
 
+@app.post("/whatsapp/test/{user_id}")
+async def whatsapp_test(user_id: str):
+    user = get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    whatsapp_number = str(user.get("whatsapp_number") or "").strip()
+    if not whatsapp_number:
+        raise HTTPException(status_code=400, detail=f"WhatsApp number is not added in backend profile for user {user_id}. Save WhatsApp again.")
+    try:
+        from whatsapp_bot import send_test_message
+
+        sent = bool(await asyncio.to_thread(send_test_message, whatsapp_number))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"WhatsApp test failed: {exc}")
+    if not sent:
+        raise HTTPException(status_code=400, detail="WhatsApp message was not sent. Check Meta token, phone number ID, and test recipient setup.")
+    return {"sent": True}
+
+
+@app.post("/api/whatsapp/test/{user_id}")
+async def api_whatsapp_test(user_id: str):
+    return await whatsapp_test(user_id)
+
+
 @app.get("/plan/{plan_id}")
 async def get_plan(plan_id: str):
     plan = get_meal_plan(int(plan_id)) if plan_id.isdigit() else None

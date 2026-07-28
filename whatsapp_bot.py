@@ -67,3 +67,37 @@ def send_plan_for_approval(whatsapp_number: str, plan: Dict[str, Any]) -> bool:
         logger.error("WhatsApp meal plan send failed for %s: %s", recipient, exc)
         return False
 
+
+def send_test_message(whatsapp_number: str) -> bool:
+    if not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+        logger.warning("WhatsApp credentials are not configured; skipping test send")
+        return False
+
+    recipient = _normalize_phone_number(whatsapp_number)
+    if not recipient:
+        logger.warning("WhatsApp number is empty; skipping test send")
+        return False
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": recipient,
+        "type": "text",
+        "text": {"body": "Smart Meal AI WhatsApp test message. Your number is connected."},
+    }
+    request = urllib.request.Request(
+        f"https://graph.facebook.com/v25.0/{WHATSAPP_PHONE_NUMBER_ID}/messages",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            response.read()
+        logger.info("WhatsApp test message sent to %s", recipient)
+        return True
+    except Exception as exc:
+        logger.error("WhatsApp test send failed for %s: %s", recipient, exc)
+        return False

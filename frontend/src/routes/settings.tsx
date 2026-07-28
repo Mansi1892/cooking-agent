@@ -13,6 +13,7 @@ function Settings() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<any>({});
   const [testingTelegram, setTestingTelegram] = useState(false);
+  const [testingWhatsapp, setTestingWhatsapp] = useState(false);
   const [savingWhatsapp, setSavingWhatsapp] = useState(false);
   const [whatsappInput, setWhatsappInput] = useState("");
   const userId = storage.getUserId();
@@ -70,12 +71,12 @@ function Settings() {
   async function saveWhatsapp() {
     if (!userId) {
       toast.error("Create profile first");
-      return;
+      return false;
     }
     const cleanedWhatsapp = whatsappInput.replace(/\D/g, "");
     if (whatsappInput.trim() && cleanedWhatsapp.length < 10) {
       toast.error("Enter a valid WhatsApp number", { description: "Use country code, no +. Example: 919876543210" });
-      return;
+      return false;
     }
     setSavingWhatsapp(true);
     try {
@@ -90,10 +91,37 @@ function Settings() {
       storage.setProfile(freshProfile);
       storage.setWhatsapp(freshProfile.whatsapp || "");
       toast.success("WhatsApp number saved");
+      return true;
     } catch (error) {
       toast.error("WhatsApp number was not saved", { description: error instanceof Error ? error.message : "Please try again." });
+      return false;
     } finally {
       setSavingWhatsapp(false);
+    }
+  }
+
+  async function testWhatsapp() {
+    if (!userId) {
+      toast.error("Create profile first");
+      return;
+    }
+    const cleanedWhatsapp = whatsappInput.replace(/\D/g, "");
+    if (!cleanedWhatsapp) {
+      toast.error("WhatsApp number missing", { description: "Add it here, save, then test again." });
+      return;
+    }
+    setTestingWhatsapp(true);
+    try {
+      if (cleanedWhatsapp !== whatsapp) {
+        const saved = await saveWhatsapp();
+        if (!saved) return;
+      }
+      await api.testWhatsapp(userId);
+      toast.success("WhatsApp is working", { description: "A test message was sent to your WhatsApp." });
+    } catch (error) {
+      toast.error("WhatsApp is not working", { description: error instanceof Error ? error.message : "Please check Meta setup and test recipient." });
+    } finally {
+      setTestingWhatsapp(false);
     }
   }
 
@@ -172,11 +200,6 @@ function Settings() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-background px-3.5 py-3">
-          <div className="text-xs font-medium text-text-secondary">Current WhatsApp number</div>
-          <div className="mt-1 text-sm font-medium">{whatsapp || "Not added"}</div>
-        </div>
-
         <label className="block">
           <div className="text-xs font-medium text-text-secondary mb-1.5">WhatsApp number</div>
           <input
@@ -191,6 +214,9 @@ function Settings() {
         <div className="flex flex-wrap gap-3">
           <button onClick={saveWhatsapp} disabled={savingWhatsapp} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-50">
             <Send className="size-4" /> {savingWhatsapp ? "Saving..." : "Save WhatsApp"}
+          </button>
+          <button onClick={testWhatsapp} disabled={testingWhatsapp || savingWhatsapp || !whatsappInput.replace(/\D/g, "")} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition disabled:opacity-50">
+            <Send className="size-4" /> {testingWhatsapp ? "Testing..." : "Send test message"}
           </button>
           <Link to="/profile" className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition">
             <UserCog className="size-4" /> Edit full profile
