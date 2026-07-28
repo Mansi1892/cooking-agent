@@ -13,6 +13,7 @@ const KEYS = {
   lastPlanId: "mpa_last_plan_id",
   credits: "mpa_credits",
   role: "mpa_role",
+  resetOnboardingUserId: "mpa_reset_onboarding_user_id",
 } as const;
 
 const APP_STORAGE_VERSION = "2026-07-27-clean-profile-forms-v1";
@@ -92,7 +93,12 @@ export const storage = {
   setCredits: (n: number) => write(KEYS.credits, String(n)),
   getRole: () => read(KEYS.role) || "user",
   setRole: (v: string) => write(KEYS.role, v),
+  getResetOnboardingUserId: () => read(KEYS.resetOnboardingUserId),
+  setResetOnboardingUserId: (v: string) => write(KEYS.resetOnboardingUserId, v),
+  clearResetOnboardingUserId: () => write(KEYS.resetOnboardingUserId, null),
   resetProfile: () => {
+    const existingUserId = read(KEYS.userId);
+    if (existingUserId) write(KEYS.resetOnboardingUserId, existingUserId);
     [
       KEYS.userId,
       KEYS.userName,
@@ -102,8 +108,6 @@ export const storage = {
       KEYS.streak,
       KEYS.profile,
       KEYS.lastPlanId,
-      KEYS.credits,
-      KEYS.role,
     ].forEach((k) => write(k, null));
   },
   clearAll: () => {

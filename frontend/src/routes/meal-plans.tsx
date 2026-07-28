@@ -69,9 +69,10 @@ function MealPlans() {
 
   useEffect(() => {
     const userId = storage.getUserId();
-    if (!userId || plan?.status === "approved") return;
+    if (!userId) return;
     const timer = window.setInterval(() => {
       api.getLatestPlan(userId).then((result) => {
+        if (!result.plan) return;
         setPlan(result.plan);
         const planId = String(result.plan.id || "");
         if (result.plan.status === "approved") {
@@ -112,12 +113,16 @@ function MealPlans() {
           storage.setCredits(result.credits_remaining);
           setCredits(result.credits_remaining);
         }
-        if ("telegram_sent" in result && result.telegram_sent) {
+        if ("whatsapp_sent" in result && result.whatsapp_sent && "telegram_queued" in result && result.telegram_queued) {
+          toast.success("Sent to WhatsApp and Telegram for approval");
+        } else if ("whatsapp_sent" in result && result.whatsapp_sent) {
+          toast.success("Sent to WhatsApp for approval");
+        } else if ("telegram_sent" in result && result.telegram_sent) {
           toast.success("Sent to Telegram for approval");
         } else if ("whatsapp_queued" in result && result.whatsapp_queued && "telegram_queued" in result && result.telegram_queued) {
-          toast.success("Sent to Telegram and WhatsApp for approval");
+          toast.warning("Telegram queued, WhatsApp not confirmed", { description: "Use Settings to send a WhatsApp test message." });
         } else if ("whatsapp_queued" in result && result.whatsapp_queued) {
-          toast.success("Sent to WhatsApp for approval");
+          toast.warning("WhatsApp not confirmed", { description: "Use Settings to send a WhatsApp test message." });
         } else if ("telegram_queued" in result && result.telegram_queued) {
           toast.success("Telegram send queued", { description: "Your plan will arrive shortly." });
         } else if ("auto_approved" in result && result.auto_approved) {
@@ -204,14 +209,14 @@ function MealPlans() {
   if (loading) return <SkeletonPage />;
 
   const s = plan?.week_summary ?? { healthy_score: 0, avg_calories: 0, avg_protein: 0, total_budget: 0 };
-  const recipesUnlocked = plan?.status === "approved";
   const isAdmin = role === "admin";
   const peoplePlans = plan?.people_plans ?? [];
   const activePerson = peoplePlans.find((person) => person.person_id === activePersonId) || peoplePlans[0];
   const displayDays = activePerson?.days || plan?.days || [];
+  const recipesUnlocked = (activePerson?.status || plan?.status) === "approved";
 
   return (
-    <div className="space-y-8 animate-fade-up">
+    <div className="space-y-8 animate-fade-up pb-28 md:pb-0">
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <div className="text-[11px] uppercase tracking-wider text-text-light font-medium">Meal Plans</div>
@@ -330,6 +335,22 @@ function MealPlans() {
 
           {/* Days */}
           <section className="space-y-3">
+            <div className="sticky top-0 z-10 -mx-2 bg-background/95 px-2 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/75 md:static md:mx-0 md:bg-transparent md:px-0">
+              <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
+                {displayDays.map((d) => (
+                  <button
+                    key={d.day}
+                    onClick={() => setOpenDay(d.day)}
+                    className={[
+                      "rounded-lg border px-2 py-2 text-xs font-medium transition sm:px-3",
+                      openDay === d.day ? "border-primary bg-primary text-primary-foreground" : "border-border bg-surface text-text-secondary",
+                    ].join(" ")}
+                  >
+                    {d.day.slice(0, 3)}
+                  </button>
+                ))}
+              </div>
+            </div>
             {displayDays.map((d) => {
               const open = openDay === d.day;
               const proteinPct = Math.min(100, (d.protein / 180) * 100);

@@ -62,6 +62,7 @@ function normalizeNetworkError(error: unknown) {
 }
 
 export type FamilyMember = {
+  id?: string | number;
   name: string;
   age?: number;
   goal?: "weight_loss" | "muscle_gain" | "maintenance";
@@ -212,7 +213,7 @@ export const api = {
   getProfile: (userId: string) => request<{ profile: UserProfile }>(`/profile/${userId}`),
   getProfileByEmail: (email: string) => request<{ profile: UserProfile }>(`/profile/by-email/${encodeURIComponent(email)}`),
   updateProfile: (userId: string, data: OnboardPayload) => request<{ profile: any }>(`/profile/${userId}`, { method: "PUT", body: JSON.stringify(data) }),
-  generatePlan: (userId: string, payload?: { week_offset?: number; week_start?: string }) => request<MealPlan | { plan: MealPlan; telegram_sent?: boolean; telegram_queued?: boolean; whatsapp_queued?: boolean; telegram_error?: string; auto_approved?: boolean; credits_remaining?: number; credits_unlimited?: boolean }>(`/plan/generate/${userId}`, { method: "POST", body: JSON.stringify(payload || { week_offset: 0 }) }),
+  generatePlan: (userId: string, payload?: { week_offset?: number; week_start?: string }) => request<MealPlan | { plan: MealPlan; telegram_sent?: boolean; telegram_queued?: boolean; whatsapp_queued?: boolean; whatsapp_sent?: boolean; telegram_error?: string; auto_approved?: boolean; credits_remaining?: number; credits_unlimited?: boolean }>(`/plan/generate/${userId}`, { method: "POST", body: JSON.stringify(payload || { week_offset: 0 }) }),
   getLatestPlan: (userId: string) => request<{ plan: MealPlan }>(`/plan/latest/${userId}`),
   getStreak: (userId: string) => request<{ streak: number }>(`/streak/${userId}`),
   adminLogin: (payload: { admin_user_id: string; admin_password: string }) => request<{ admin: { id: string; name: string; role: string } }>("/admin/login", { method: "POST", body: JSON.stringify(payload) }),
@@ -224,13 +225,17 @@ export const api = {
   updateSupportTicketStatus: (payload: { admin_user_id: string; admin_password: string; ticket_id: number; status: string }) => request<{ ticket: SupportTicket }>("/admin/support-tickets/status", { method: "POST", body: JSON.stringify(payload) }),
   generateRecipe: (payload: { user_id: string; meal_name: string; meal_type?: string }) => request<{ recipe: Recipe }>("/recipe/generate", { method: "POST", body: JSON.stringify(payload) }),
   regeneratePersonDay: (payload: { user_id: string; plan_id: string; person_id: string; day: string; feedback: string }) => request<{ plan: MealPlan; override: any }>("/plan/regenerate-person-day", { method: "POST", body: JSON.stringify(payload) }),
+  getTelegramBotLink: () => request<{ url: string }>("/telegram/bot-link"),
   testTelegram: (userId: string) => request<{ sent: boolean }>(`/telegram/test/${userId}`, { method: "POST" }),
   testWhatsapp: (userId: string) => request<{ sent: boolean }>(`/whatsapp/test/${userId}`, { method: "POST" }),
+  testTelegramContact: (value: string) => request<{ sent: boolean }>("/telegram/test-contact", { method: "POST", body: JSON.stringify({ value }) }),
+  testWhatsappContact: (value: string) => request<{ sent: boolean }>("/whatsapp/test-contact", { method: "POST", body: JSON.stringify({ value }) }),
   getPlan: (planId: string) => request<MealPlan>(`/plan/${planId}`),
   getHistory: async (userId: string) => {
     const response = await request<HistoryItem[] | { history: HistoryItem[] }>(`/history/${userId}`);
     return Array.isArray(response) ? response : response.history || [];
   },
+  clearHistory: (userId: string) => request<{ deleted_plans: number }>(`/history/${userId}`, { method: "DELETE" }),
   getGrocery: async (planId: string) => {
     const response = await request<GroceryGroup[] | { grocery: GroceryGroup[] }>(`/grocery/${planId}`);
     return Array.isArray(response) ? response : response.grocery || [];

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Activity, Flame, Pencil, Plus, Save, Target, Trash2, User as UserIcon, Wallet, X } from "lucide-react";
+import { Activity, Flame, MessageCircle, Pencil, Plus, Save, Send, Target, Trash2, User as UserIcon, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { api, type FamilyMember, type OnboardPayload } from "@/lib/api";
@@ -21,6 +21,9 @@ function Profile() {
   const [savedProfile, setSavedProfile] = useState<OnboardPayload | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingTelegram, setTestingTelegram] = useState(false);
+  const [testingWhatsapp, setTestingWhatsapp] = useState(false);
+  const [familyConnecting, setFamilyConnecting] = useState("");
   const [streak, setStreak] = useState(0);
 
   useEffect(() => {
@@ -119,6 +122,131 @@ function Profile() {
       toast.error("Profile was not saved", { description: error instanceof Error ? error.message : "Please try again." });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveForTest() {
+    if (!profileIsValid) {
+      toast.error("Please fix profile details", { description: Object.values(errors)[0] || Object.values(familyErrors)[0] });
+      return false;
+    }
+    const userId = storage.getUserId();
+    if (!userId) {
+      toast.error("Create profile first");
+      return false;
+    }
+    const payload = sanitizeProfile(profile);
+    const result = await api.updateProfile(userId, payload);
+    const updatedProfile = normalizeProfile(result.profile);
+    setProfile(updatedProfile);
+    storage.setProfile(updatedProfile);
+    storage.setUserName(updatedProfile.name);
+    storage.setGoal(updatedProfile.goal);
+    storage.setTelegram(updatedProfile.telegram || "");
+    storage.setWhatsapp(updatedProfile.whatsapp || "");
+    setSavedProfile(updatedProfile);
+    return true;
+  }
+
+  async function testTelegram() {
+    const userId = storage.getUserId();
+    if (!userId) {
+      toast.error("Create profile first");
+      return;
+    }
+    if (!profile.telegram?.trim()) {
+      toast.error("Telegram chat ID missing", { description: "Enter the Telegram chat ID first." });
+      return;
+    }
+    setTestingTelegram(true);
+    try {
+      const saved = await saveForTest();
+      if (!saved) return;
+      await api.testTelegram(userId);
+      toast.success("Test message sent", { description: "Check Telegram for the Smart Meal AI message." });
+    } catch (error) {
+      toast.error("Telegram test failed", { description: error instanceof Error ? error.message : "Please check the chat ID and bot token." });
+    } finally {
+      setTestingTelegram(false);
+    }
+  }
+
+  async function openTelegramBot() {
+    try {
+      const result = await api.getTelegramBotLink();
+      window.open(result.url, "_blank", "noopener,noreferrer");
+      toast.success("Telegram bot opened", { description: "Tap Start, copy the chat ID, then paste it here." });
+    } catch (error) {
+      toast.error("Could not open bot", { description: error instanceof Error ? error.message : "Please check Telegram bot setup." });
+    }
+  }
+
+  async function copyTelegramInvite(name?: string) {
+    const person = name?.trim() || "there";
+    const message = `Hi ${person}, please connect Telegram for Smart Meal AI:\n\n1. Open this bot link:\nhttps://t.me/cooking_agent_1892_bot\n\n2. Tap Start or send /start\n\n3. The bot will reply with a Telegram chat ID.\n\n4. Send that chat ID back to me.\n\nI will add it to your Smart Meal AI family profile so you can approve/reject your own meal plan.`;
+    try {
+      await navigator.clipboard.writeText(message);
+      toast.success("Invite copied", { description: "Send it to the family member." });
+    } catch {
+      toast.error("Could not copy invite");
+    }
+  }
+
+  async function testWhatsapp() {
+    const cleanedWhatsapp = String(profile.whatsapp || "").replace(/\D/g, "");
+    if (!cleanedWhatsapp) {
+      toast.error("WhatsApp number missing", { description: "Paste your WhatsApp number with country code first." });
+      return;
+    }
+    if (cleanedWhatsapp.length < 10) {
+      toast.error("Enter a valid WhatsApp number", { description: "Use country code, no +. Example: 919876543210" });
+      return;
+    }
+    const userId = storage.getUserId();
+    if (!userId) {
+      toast.error("Create profile first");
+      return;
+    }
+    setTestingWhatsapp(true);
+    try {
+      update({ whatsapp: cleanedWhatsapp });
+      const saved = await saveForTest();
+      if (!saved) return;
+      await api.testWhatsapp(userId);
+      toast.success("WhatsApp connected", { description: "A test message was sent." });
+    } catch (error) {
+      toast.error("WhatsApp test failed", { description: error instanceof Error ? error.message : "Please check Meta setup and recipient number." });
+    } finally {
+      setTestingWhatsapp(false);
+    }
+  }
+
+  async function testFamilyContact(channel: "Telegram" | "WhatsApp", value: string | undefined, key: string, telegramValue?: string) {
+    const cleanValue = channel === "WhatsApp"
+      ? String(value || "").replace(/\D/g, "")
+      : String(value || "").trim();
+    if (!cleanValue) {
+      toast.error(`${channel} value missing`, {
+        description: channel === "Telegram" ? "Paste the Telegram chat ID first." : "Paste the WhatsApp number with country code first.",
+      });
+      return;
+    }
+    if (channel === "WhatsApp") {
+      const cleanTelegram = String(telegramValue || "").replace(/\D/g, "");
+      if (cleanTelegram && cleanTelegram === cleanValue) {
+        toast.error("Use WhatsApp number here", { description: "This looks like the Telegram chat ID. Enter WhatsApp number with country code." });
+        return;
+      }
+    }
+    setFamilyConnecting(key);
+    try {
+      if (channel === "Telegram") await api.testTelegramContact(cleanValue);
+      else await api.testWhatsappContact(cleanValue);
+      toast.success(`${channel} connected`, { description: "A test message was sent." });
+    } catch (error) {
+      toast.error(`${channel} connection failed`, { description: error instanceof Error ? error.message : "Please check the value and try again." });
+    } finally {
+      setFamilyConnecting("");
     }
   }
 
@@ -261,11 +389,24 @@ function Profile() {
             </select>
             {errors.dietary_preference && <ErrorText>{errors.dietary_preference}</ErrorText>}
           </Field>
-          <Field label="Telegram chat ID">
-            <input className={input()} value={profile.telegram ?? ""} onChange={(e) => update({ telegram: e.target.value })} placeholder="Optional" />
+          <Field label="Telegram chat ID" hint="Enter the chat ID from Telegram. Use Send test to verify it.">
+            <div className="flex gap-2">
+              <input className={input()} value={profile.telegram ?? ""} onChange={(e) => update({ telegram: e.target.value.replace(/[^\d-]/g, "") })} placeholder="e.g. 8892259333" />
+              <button type="button" onClick={testTelegram} disabled={testingTelegram || saving} className={connectButtonClass()}>
+                <Send className="size-4" /> {testingTelegram ? "Sending" : "Send test"}
+              </button>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-light">
+              <button type="button" onClick={openTelegramBot} className="text-primary font-medium hover:underline">Open bot</button>
+              <span>Tap Start or send /start. The bot replies with your chat ID; paste that number here.</span>
+            </div>
           </Field>
           <Field label="WhatsApp number" hint="Use country code, no +. Example: 919876543210">
-            <input className={input()} value={profile.whatsapp ?? ""} onChange={(e) => update({ whatsapp: e.target.value })} placeholder="Optional" />
+            <input className={input()} value={profile.whatsapp ?? ""} onChange={(e) => update({ whatsapp: e.target.value.replace(/\D/g, "") })} placeholder="Optional" />
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-warning">
+              <span className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-2 py-1 font-medium"><MessageCircle className="size-3" /> Coming soon</span>
+              <span>You can save the number now; WhatsApp approvals will be enabled later.</span>
+            </div>
           </Field>
           <Field label="Allergies">
             <input className={input()} value={(profile as any)._allergiesText ?? (profile.allergies ?? []).join(", ")} onChange={(e) => update({ allergies: splitList(e.target.value), _allergiesText: e.target.value } as any)} placeholder="Optional" />
@@ -335,10 +476,24 @@ function Profile() {
                     <input className={input()} value={(member as any)._preferencesText ?? (member.preferences ?? []).join(", ")} onChange={(e) => patchFamily(index, { preferences: splitList(e.target.value), _preferencesText: e.target.value } as any)} placeholder="Optional" />
                   </Field>
                   <Field label="Telegram chat ID">
-                    <input className={input()} value={member.telegram ?? ""} onChange={(e) => patchFamily(index, { telegram: e.target.value })} placeholder="Optional" />
+                    <div className="flex gap-2">
+                      <input className={input()} value={member.telegram ?? ""} onChange={(e) => patchFamily(index, { telegram: e.target.value.replace(/[^\d-]/g, "") })} placeholder="e.g. 8892259333" />
+                      <button type="button" onClick={() => testFamilyContact("Telegram", member.telegram, `telegram-${index}`)} disabled={familyConnecting !== ""} className={connectButtonClass()}>
+                        <Send className="size-4" /> {familyConnecting === `telegram-${index}` ? "Sending" : "Send test"}
+                      </button>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-light">
+                      <button type="button" onClick={openTelegramBot} className="text-primary font-medium hover:underline">Open bot</button>
+                      <button type="button" onClick={() => copyTelegramInvite(member.name)} className="text-primary font-medium hover:underline">Copy invite</button>
+                      <span>They open bot, tap Start or send /start, then send you the chat ID shown by the bot.</span>
+                    </div>
                   </Field>
                   <Field label="WhatsApp number">
-                    <input className={input()} value={member.whatsapp ?? ""} onChange={(e) => patchFamily(index, { whatsapp: e.target.value })} placeholder="Optional" />
+                    <input className={input()} value={member.whatsapp ?? ""} onChange={(e) => patchFamily(index, { whatsapp: e.target.value.replace(/\D/g, "") })} placeholder="Optional" />
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-warning">
+                      <span className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-2 py-1 font-medium"><MessageCircle className="size-3" /> Coming soon</span>
+                      <span>Saved now for future WhatsApp approvals.</span>
+                    </div>
                   </Field>
                 </div>
                 <button onClick={() => removeFamily(index)} className="self-start inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition">
@@ -369,6 +524,7 @@ function normalizeProfile(raw: any): OnboardPayload {
     allergies: raw?.allergies || [],
     preferences: raw?.preferences || [],
     family: (raw?.family || []).map((member: any) => ({
+      id: member.id,
       name: member.name || "",
       age: Number(member.age || 0),
       goal: member.goal || "maintenance",
@@ -408,6 +564,10 @@ function sanitizeProfile(profile: OnboardPayload): OnboardPayload {
 
 function input() {
   return "w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm placeholder:text-text-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition";
+}
+
+function connectButtonClass() {
+  return "shrink-0 inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm font-medium hover:opacity-90 transition shadow-soft disabled:opacity-50 disabled:cursor-not-allowed";
 }
 
 function isValidBudget(value: unknown) {

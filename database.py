@@ -117,6 +117,26 @@ def get_user_by_telegram_id(telegram_id):
         return {}
 
 
+def get_user_by_whatsapp_number(whatsapp_number):
+    clean_number = "".join(ch for ch in str(whatsapp_number or "") if ch.isdigit())
+    if not clean_number:
+        return {}
+    try:
+        result = (
+            supabase.table("users")
+            .select("*")
+            .eq("whatsapp_number", clean_number)
+            .order("id", desc=True)
+            .limit(1)
+            .execute()
+        )
+        users = result.data or []
+        return users[0] if users else {}
+    except Exception as exc:
+        print(f"⚠️ Error fetching user with WhatsApp number: {exc}")
+        return {}
+
+
 def update_user(user_id, updates):
     allowed = {
         "name",
@@ -176,6 +196,21 @@ def update_user(user_id, updates):
                 return updated
             except Exception as exc2:
                 print(f"⚠️ Error updating user fallback {user_id}: {exc2}")
+        return {}
+
+
+def update_family_member_telegram(member_id, telegram_id):
+    try:
+        result = (
+            supabase.table("family_members")
+            .update({"telegram": str(telegram_id or "").strip()})
+            .eq("id", member_id)
+            .select("*")
+            .execute()
+        )
+        return result.data[0] if result.data else {}
+    except Exception as exc:
+        print(f"⚠️ Error updating family member Telegram {member_id}: {exc}")
         return {}
 
 
@@ -626,3 +661,20 @@ def get_user_history(user_id):
     except Exception as exc:
         print(f"⚠️ Error fetching user history for {user_id}: {exc}")
         return []
+
+
+def clear_user_meal_history(user_id):
+    try:
+        history = get_user_history(user_id)
+        plan_ids = [plan.get("id") for plan in history or [] if plan.get("id")]
+        for plan_id in plan_ids:
+            for table in ("day_meals", "grocery_lists", "feedback", "person_plan_overrides"):
+                try:
+                    supabase.table(table).delete().eq("plan_id", plan_id).execute()
+                except Exception as exc:
+                    print(f"⚠️ Error clearing {table} for plan {plan_id}: {exc}")
+        supabase.table("meal_plans").delete().eq("user_id", user_id).execute()
+        return {"deleted_plans": len(plan_ids)}
+    except Exception as exc:
+        print(f"⚠️ Error clearing meal history for user {user_id}: {exc}")
+        return {"deleted_plans": 0, "error": str(exc)}

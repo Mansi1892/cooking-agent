@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   Sparkles, ArrowRight, ArrowLeft, Check, Plus, X, Target, TrendingUp, Minus,
-  User as UserIcon, Heart,
+  User as UserIcon, Heart, MessageCircle, Send,
 } from "lucide-react";
 import { api, type FamilyMember, type OnboardPayload } from "@/lib/api";
 import { storage } from "@/lib/storage";
@@ -51,6 +51,10 @@ function Onboarding() {
   useEffect(() => {
     let cancelled = false;
     async function restoreExistingProfile() {
+      if (storage.getResetOnboardingUserId()) {
+        setCheckingExisting(false);
+        return;
+      }
       const storedAuthUser = storage.getAuthUser<{ email?: string; name?: string }>();
       const email = storedAuthUser?.email?.trim().toLowerCase();
       if (!email) {
@@ -100,23 +104,29 @@ function Onboarding() {
         navigate({ to: "/login" });
         return;
       }
-      const r = await api.onboard(payload);
-      const id = r.user_id;
+      const resetUserId = storage.getResetOnboardingUserId();
+      const result = resetUserId
+        ? await api.updateProfile(resetUserId, payload)
+        : await api.onboard(payload);
+      const id = resetUserId || ("user_id" in result ? result.user_id : String(result.profile?.id || ""));
       const currentAuthUser = storage.getAuthUser();
+      const currentCredits = storage.getCredits();
+      const currentRole = storage.getRole();
+      const updatedProfile = "profile" in result ? result.profile : null;
       storage.clearAll();
       storage.setAuthUser(currentAuthUser || {
         name: form.name,
         email: payload.email || "",
         logged_in_at: new Date().toISOString(),
       });
-      storage.setCredits(typeof r?.credits === "number" ? r.credits : 3);
-      storage.setRole(r?.role || "user");
+      storage.setCredits(Number(updatedProfile?.credits ?? ("credits" in result ? result.credits : currentCredits)));
+      storage.setRole(updatedProfile?.role || ("role" in result ? result.role : currentRole));
       setUserId(id);
       storage.setUserId(id);
-      storage.setUserName(form.name);
-      storage.setGoal(form.goal);
-      if (form.telegram) storage.setTelegram(form.telegram);
-      if (form.whatsapp) storage.setWhatsapp(form.whatsapp);
+      storage.setUserName(updatedProfile?.name || form.name);
+      storage.setGoal(updatedProfile?.goal || form.goal);
+      if (payload.telegram) storage.setTelegram(payload.telegram);
+      if (payload.whatsapp) storage.setWhatsapp(payload.whatsapp);
       storage.setProfile(payload);
       setStep(3);
     } catch (error) {
@@ -179,7 +189,7 @@ function Onboarding() {
           {step === 0 && <StepPersonal form={form} update={update} />}
           {step === 1 && <StepFamily form={form} update={update} />}
           {step === 2 && <StepReview form={form} />}
-          {step === 3 && <StepSuccess onContinue={() => navigate({ to: "/" })} />}
+          {step === 3 && <StepSuccess userId={userId} onContinue={() => navigate({ to: "/" })} />}
 
           {step < 3 && (
             <div className="mt-10 flex items-center justify-between">
@@ -286,6 +296,10 @@ function input(extra = "") {
   return "w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm placeholder:text-text-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition " + extra;
 }
 
+function connectButtonClass() {
+  return "shrink-0 inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm font-medium hover:opacity-90 transition shadow-soft disabled:opacity-50 disabled:cursor-not-allowed";
+}
+
 function cleanNumber(value: string) {
   const cleaned = value.replace(/^0+(?=\d)/, "");
   return cleaned === "" ? 0 : Number(cleaned);
@@ -322,10 +336,74 @@ function ErrorText({ children }: { children: React.ReactNode }) {
   return <div className="text-[11px] text-destructive mt-1">{children}</div>;
 }
 
+async function sendContactTest(channel: "Telegram" | "WhatsApp", value?: string, telegramValue?: string) {
+  const cleanValue = channel === "WhatsApp"
+    ? String(value || "").replace(/\D/g, "")
+    : String(value || "").trim();
+  if (!cleanValue) {
+    toast.error(`${channel} value missing`, {
+      description: channel === "Telegram"
+        ? "Paste the Telegram chat ID first."
+        : "Paste the WhatsApp number with country code first.",
+    });
+    return false;
+  }
+  if (channel === "WhatsApp") {
+    const cleanTelegram = String(telegramValue || "").replace(/\D/g, "");
+    if (cleanTelegram && cleanValue === cleanTelegram) {
+      toast.error("Use WhatsApp number here", {
+        description: "This looks like the Telegram chat ID. Enter the WhatsApp number with country code, for example 919876543210.",
+      });
+      return false;
+    }
+  }
+  try {
+    if (channel === "Telegram") await api.testTelegramContact(cleanValue);
+    else await api.testWhatsappContact(cleanValue);
+    toast.success(`${channel} connected`, { description: "A test message was sent." });
+    return true;
+  } catch (error) {
+    toast.error(`${channel} connection failed`, {
+      description: error instanceof Error ? error.message : "Please check the value and try again.",
+    });
+    return false;
+  }
+}
+
+async function openTelegramBot() {
+  try {
+    const result = await api.getTelegramBotLink();
+    window.open(result.url, "_blank", "noopener,noreferrer");
+    toast.success("Telegram bot opened", { description: "Tap Start, copy the chat ID, then paste it here." });
+  } catch (error) {
+    toast.error("Could not open bot", { description: error instanceof Error ? error.message : "Please check Telegram bot setup." });
+  }
+}
+
+async function copyTelegramInvite(name?: string) {
+  const person = name?.trim() || "there";
+  const message = `Hi ${person}, please connect Telegram for Smart Meal AI:\n\n1. Open this bot link:\nhttps://t.me/cooking_agent_1892_bot\n\n2. Tap Start or send /start\n\n3. The bot will reply with a Telegram chat ID.\n\n4. Send that chat ID back to me.\n\nI will add it to your Smart Meal AI family profile so you can approve/reject your own meal plan.`;
+  try {
+    await navigator.clipboard.writeText(message);
+    toast.success("Invite copied", { description: "Send it to the family member." });
+  } catch {
+    toast.error("Could not copy invite");
+  }
+}
+
 function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Partial<OnboardPayload>) => void }) {
   const errors = validatePersonal(form);
   const [allergiesText, setAllergiesText] = useState((form.allergies ?? []).join(", "));
   const [preferencesText, setPreferencesText] = useState((form.preferences ?? []).join(", "));
+  const [connecting, setConnecting] = useState<"" | "telegram" | "whatsapp">("");
+  async function connect(channel: "Telegram" | "WhatsApp", value?: string) {
+    setConnecting(channel.toLowerCase() as "telegram" | "whatsapp");
+    try {
+      await sendContactTest(channel, value, form.telegram);
+    } finally {
+      setConnecting("");
+    }
+  }
   const goals = [
     { id: "weight_loss", title: "Weight Loss", desc: "Lean, sustainable calorie deficit", icon: Minus },
     { id: "muscle_gain", title: "Muscle Gain", desc: "High-protein, surplus calories", icon: TrendingUp },
@@ -365,11 +443,24 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
           <input type="number" min={1500} step={100} className={input()} value={form.weekly_budget || ""} onChange={(e) => update({ weekly_budget: cleanNumber(e.target.value) })} />
           {errors.weekly_budget && <ErrorText>{errors.weekly_budget}</ErrorText>}
         </Field>
-        <Field label="Telegram chat ID (optional)" hint="Open the bot and send /start to get this number">
-          <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value })} placeholder="Optional" />
+        <Field label="Telegram chat ID (optional)" hint="Enter the Telegram chat ID, then use Send test to verify it.">
+          <div className="flex gap-2">
+            <input className={input()} value={form.telegram} onChange={(e) => update({ telegram: e.target.value.replace(/[^\d-]/g, "") })} placeholder="e.g. 8892259333" />
+            <button type="button" onClick={() => connect("Telegram", form.telegram)} disabled={connecting !== ""} className={connectButtonClass()}>
+              <Send className="size-4" /> {connecting === "telegram" ? "Sending" : "Send test"}
+            </button>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-light">
+            <button type="button" onClick={openTelegramBot} className="text-primary font-medium hover:underline">Open bot</button>
+            <span>Tap Start or send /start. The bot replies with your chat ID; paste that number here.</span>
+          </div>
         </Field>
         <Field label="WhatsApp number (optional)" hint="Use country code, no +. Example: 919876543210">
-          <input className={input()} value={form.whatsapp ?? ""} onChange={(e) => update({ whatsapp: e.target.value })} placeholder="Optional" />
+          <input className={input()} value={form.whatsapp ?? ""} onChange={(e) => update({ whatsapp: e.target.value.replace(/\D/g, "") })} placeholder="Optional" />
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-warning">
+            <span className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-2 py-1 font-medium"><MessageCircle className="size-3" /> Coming soon</span>
+            <span>You can save the number now; WhatsApp approvals will be enabled later.</span>
+          </div>
         </Field>
       </div>
 
@@ -444,11 +535,20 @@ function StepPersonal({ form, update }: { form: OnboardPayload; update: (p: Part
 function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partial<OnboardPayload>) => void }) {
   const family = form.family ?? [];
   const errors = validateFamily(family);
+  const [connecting, setConnecting] = useState("");
 
   const add = () => update({ family: [...family, { name: "", age: 0, goal: "" as FamilyMember["goal"], gender: "", weight: 0, height: 0, diet: "", allergies: [], preferences: [], telegram: "", whatsapp: "" }] });
   const remove = (i: number) => update({ family: family.filter((_, idx) => idx !== i) });
   const patch = (i: number, p: Partial<FamilyMember>) =>
     update({ family: family.map((m, idx) => (idx === i ? { ...m, ...p } : m)) });
+  async function connect(channel: "Telegram" | "WhatsApp", value: string | undefined, key: string, telegramValue?: string) {
+    setConnecting(key);
+    try {
+      await sendContactTest(channel, value, telegramValue || form.telegram);
+    } finally {
+      setConnecting("");
+    }
+  }
 
   return (
     <div className="animate-fade-up">
@@ -511,10 +611,24 @@ function StepFamily({ form, update }: { form: OnboardPayload; update: (p: Partia
                   <input className={input()} value={(m as any)._preferencesText ?? (m.preferences ?? []).join(", ")} onChange={(e) => patch(i, { preferences: splitList(e.target.value), _preferencesText: e.target.value } as any)} placeholder="Optional" />
                 </Field>
                 <Field label="Telegram chat ID (optional)">
-                  <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value })} placeholder="Optional" />
+                  <div className="flex gap-2">
+                    <input className={input()} value={m.telegram ?? ""} onChange={(e) => patch(i, { telegram: e.target.value.replace(/[^\d-]/g, "") })} placeholder={form.telegram ? `Use main: ${form.telegram}` : "e.g. 8892259333"} />
+                    <button type="button" onClick={() => connect("Telegram", m.telegram || form.telegram, `telegram-${i}`)} disabled={connecting !== ""} className={connectButtonClass()}>
+                      <Send className="size-4" /> {connecting === `telegram-${i}` ? "Sending" : "Send test"}
+                    </button>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-light">
+                    <button type="button" onClick={openTelegramBot} className="text-primary font-medium hover:underline">Open bot</button>
+                    <button type="button" onClick={() => copyTelegramInvite(m.name)} className="text-primary font-medium hover:underline">Copy invite</button>
+                    <span>They open bot, tap Start or send /start, then send you the chat ID shown by the bot.</span>
+                  </div>
                 </Field>
                 <Field label="WhatsApp number (optional)">
-                  <input className={input()} value={m.whatsapp ?? ""} onChange={(e) => patch(i, { whatsapp: e.target.value })} placeholder="Optional" />
+                  <input className={input()} value={m.whatsapp ?? ""} onChange={(e) => patch(i, { whatsapp: e.target.value.replace(/\D/g, "") })} placeholder={form.whatsapp ? `Use main: ${form.whatsapp}` : "Optional"} />
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-warning">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-2 py-1 font-medium"><MessageCircle className="size-3" /> Coming soon</span>
+                    <span>Saved now for future WhatsApp approvals.</span>
+                  </div>
                 </Field>
               </div>
               <button onClick={() => remove(i)} className="size-8 rounded-md hover:bg-muted text-text-light hover:text-destructive grid place-items-center transition">
@@ -615,7 +729,7 @@ function sanitizePayload(payload: OnboardPayload): OnboardPayload {
   };
 }
 
-function StepSuccess({ onContinue }: { onContinue: () => void }) {
+function StepSuccess({ onContinue }: { userId: string; onContinue: () => void }) {
   return (
     <div className="text-center pt-6 animate-fade-up">
       <div className="mx-auto size-20 rounded-full bg-success/10 text-success grid place-items-center animate-pop-in">

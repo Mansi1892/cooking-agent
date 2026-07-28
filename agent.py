@@ -2,6 +2,7 @@ from langchain.agents import initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI
 import json
+import re
 from typing import Dict, List, Any, Tuple, Optional
 import os
 from datetime import date, timedelta
@@ -52,7 +53,7 @@ DIET_BLOCKED_TERMS = {
 
 SAFE_MEAL_REPLACEMENTS = {
     "vegetarian": {
-        "breakfast": "Moong dal cheela with mint chutney",
+        "breakfast": "Besan cheela with mint chutney",
         "lunch": "Rajma masala with rice and salad",
         "dinner": "Paneer tikka with roti and cucumber salad",
     },
@@ -226,16 +227,118 @@ def estimate_shopping_cost(items: Any, budget_weekly: int = 0) -> Dict[str, Any]
         }
 
 
+FEEDBACK_EXCLUSION_TERMS = {
+    "dal": ["dal", "daal", "lentil", "lentils"],
+    "curd": ["curd", "yogurt", "yoghurt", "raita"],
+}
+
+FEEDBACK_MEAL_REPLACEMENTS = [
+    (r"\bmoong\s+dal\s+(cheela|chilla|chila|chilla)\b", "Besan cheela"),
+    (r"\bdal\s+tadka\b", "Chana masala"),
+    (r"\bdal\s+chawal\b", "Rajma rice"),
+    (r"\bmasoor\s+dal\b", "Rajma curry"),
+    (r"\bdal\s+makhani\b", "Paneer makhani"),
+    (r"\bdal\s+soup\b", "vegetable soup"),
+    (r"\b\w+\s+dal\s+\w+\b", "Besan vegetable cheela"),
+    (r"\b\w+\s+dal\b", "chana"),
+    (r"\bdal\s+\w+\b", "chana curry"),
+    (r"\bkhichdi\b", "vegetable pulao"),
+    (r"\bkadhi\b", "besan vegetable curry"),
+    (r"\bsambar\b", "tomato chutney"),
+    (r"\bcurd\b", "mint chutney"),
+    (r"\byogurt\b", "mint chutney"),
+    (r"\byoghurt\b", "mint chutney"),
+    (r"\braita\b", "cucumber salad"),
+    (r"\blentils?\b", "chana"),
+]
+
+
+def extract_feedback_exclusions(feedback_text: str) -> List[str]:
+    text = str(feedback_text or "").lower()
+    if not text:
+        return []
+    exclusion_words = ("no ", "without", "avoid", "remove", "don't", "dont", "not include", "exclude")
+    if not any(word in text for word in exclusion_words):
+        return []
+    exclusions = []
+    for canonical, terms in FEEDBACK_EXCLUSION_TERMS.items():
+        if any(re.search(rf"\b{re.escape(term)}\b", text) for term in terms):
+            exclusions.append(canonical)
+    return exclusions
+
+
+def feedback_exclusion_instruction(feedback_text: str) -> str:
+    exclusions = extract_feedback_exclusions(feedback_text)
+    if not exclusions:
+        return ""
+    banned_terms = []
+    for exclusion in exclusions:
+        banned_terms.extend(FEEDBACK_EXCLUSION_TERMS.get(exclusion, [exclusion]))
+    return (
+        "Hard user exclusions from feedback: "
+        f"{', '.join(sorted(set(banned_terms)))}. "
+        "Do not include these words or ingredients in any meal, add-on, portion note, or shopping-list item."
+    )
+
+
+def text_has_feedback_exclusion(value: Any, exclusions: List[str]) -> bool:
+    text = str(value or "").lower()
+    return any(
+        re.search(rf"\b{re.escape(term)}\b", text)
+        for exclusion in exclusions
+        for term in FEEDBACK_EXCLUSION_TERMS.get(exclusion, [exclusion])
+    )
+
+
+def replace_feedback_exclusions(value: Any, exclusions: List[str]) -> str:
+    text = str(value or "").strip()
+    if not text or not exclusions:
+        return text
+    for pattern, replacement in FEEDBACK_MEAL_REPLACEMENTS:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    if text_has_feedback_exclusion(text, exclusions):
+        text = "Chana paneer vegetable bowl with roti and salad"
+    text = re.sub(r"\s+", " ", text).strip(" ,")
+    return text
+
+
+def apply_feedback_exclusions(plan: Dict[str, Any], feedback_text: str) -> Dict[str, Any]:
+    exclusions = extract_feedback_exclusions(feedback_text)
+    if not exclusions:
+        return plan
+    plan["feedback_exclusions"] = exclusions
+
+    for day in plan.get("week_plan") or []:
+        for meal_type in ("breakfast", "lunch", "dinner"):
+            day[meal_type] = replace_feedback_exclusions(day.get(meal_type), exclusions)
+
+    shopping_list = plan.get("shopping_list") or []
+    if isinstance(shopping_list, list):
+        cleaned = [
+            str(item)
+            for item in shopping_list
+            if str(item).strip() and not text_has_feedback_exclusion(item, exclusions)
+        ]
+        replacements = ["Chana 1kg", "Rajma 1kg", "Soya chunks 500g", "Tofu 500g", "Paneer 500g"]
+        for item in replacements:
+            if item not in cleaned:
+                cleaned.append(item)
+        plan["shopping_list"] = cleaned
+    return plan
+
+
 def apply_budget_summary(plan: Dict[str, Any], budget_weekly: int, goal: str) -> Dict[str, Any]:
     days = plan.get("week_plan") or []
     targets = GOAL_TARGETS.get(goal, GOAL_TARGETS["maintenance"])
+    exclusions = plan.get("feedback_exclusions") or []
+    protein_add_on = "with tofu paneer protein add-on" if exclusions else "with dal curd protein add-on"
     for day in days:
         total_calories = float(day.get("total_calories") or 0)
         total_protein = float(day.get("total_protein") or 0)
         if total_calories < targets["min_calories"] or total_protein < targets["min_protein"]:
             calorie_gap = max(0, targets["min_calories"] - total_calories)
             protein_gap = max(0, targets["min_protein"] - total_protein)
-            day["dinner"] = f"{day.get('dinner', '')} with dal curd protein add-on".strip()
+            day["dinner"] = replace_feedback_exclusions(f"{day.get('dinner', '')} {protein_add_on}".strip(), exclusions)
             day["dinner_calories"] = round(float(day.get("dinner_calories") or 0) + calorie_gap)
             day["dinner_protein"] = round(float(day.get("dinner_protein") or 0) + protein_gap)
             day["total_calories"] = round(total_calories + calorie_gap)
@@ -340,35 +443,110 @@ def build_people_preference_context(user: Dict[str, Any]) -> str:
     return "\n".join(lines) or "None"
 
 
+def personalize_meal_name(
+    name: str,
+    meal_type: str,
+    goal: str,
+    dietary_type: str = "normal",
+    exclusions: Optional[List[str]] = None,
+) -> str:
+    base = str(name or "").strip()
+    if not base:
+        return base
+    base = replace_feedback_exclusions(base, exclusions or [])
+    diet = normalize_dietary_type(dietary_type) or "normal"
+    if violates_diet(base, diet):
+        replacements = SAFE_MEAL_REPLACEMENTS.get(diet) or SAFE_MEAL_REPLACEMENTS.get("vegetarian")
+        if replacements:
+            base = replacements.get(meal_type.lower(), base)
+    if diet == "pescatarian" and meal_type in {"Lunch", "Dinner"} and not text_has_feedback_exclusion(base, exclusions or []):
+        lower_base = base.lower()
+        if not any(word in lower_base for word in ["fish", "seafood", "prawn", "shrimp"]):
+            if meal_type == "Lunch":
+                base = "Fish curry with rice and cucumber salad"
+            else:
+                base = "Grilled fish with vegetables and roti"
+    lower = base.lower()
+    if goal == "weight_loss":
+        if meal_type == "Breakfast":
+            return f"Light {base} with extra vegetables"
+        if "rice" in lower:
+            return base.replace("Rice", "small rice portion").replace("rice", "small rice portion")
+        if "chapati" in lower or "roti" in lower:
+            return f"{base} with extra salad and smaller roti portion"
+        return f"Light {base} with salad"
+    if goal == "muscle_gain":
+        if any(word in lower for word in ["fish", "paneer", "tofu", "dal", "chana", "rajma", "soya"]):
+            return f"High-protein {base}"
+        return f"{base} with paneer/tofu protein add-on"
+    if goal == "maintenance":
+        if base.lower().startswith(("light ", "high-protein ")):
+            return base
+        return f"Balanced {base}"
+    return base
+
+
+def person_meal(
+    meal_type: str,
+    day: Dict[str, Any],
+    goal: str,
+    targets: Dict[str, int],
+    dietary_type: str = "normal",
+    exclusions: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    key = meal_type.lower()
+    calories_key = f"{key}_calories"
+    protein_key = f"{key}_protein"
+    split = {"Breakfast": 0.28, "Lunch": 0.37, "Dinner": 0.35}.get(meal_type, 0.33)
+    return {
+        "type": meal_type,
+        "name": personalize_meal_name(day.get(key, ""), meal_type, goal, dietary_type, exclusions),
+        "calories": round(targets["calories"] * split),
+        "protein": round(targets["protein"] * split),
+        "base_calories": day.get(calories_key, 0),
+        "base_protein": day.get(protein_key, 0),
+    }
+
+
 def attach_people_plans(plan: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
     base_days = plan.get("week_plan") or []
+    exclusions = plan.get("feedback_exclusions") or []
+    plan_status = plan.get("status") or "planned"
     people_plans = []
-    for person in build_people_profiles(user):
+    people = build_people_profiles(user)
+    has_pescatarian = any((person.get("dietary_type") or "") == "pescatarian" for person in people)
+    if has_pescatarian and isinstance(plan.get("shopping_list"), list):
+        for item in ["Fish fillets 1kg", "Lemon 4", "Fresh coriander 1 bunch"]:
+            if item not in plan["shopping_list"]:
+                plan["shopping_list"].append(item)
+    for person in people:
         targets = estimate_person_targets(person)
         goal = person.get("goal") or "maintenance"
+        dietary_type = person.get("dietary_type") or "normal"
         adjusted_days = []
         for day in base_days:
             base_calories = float(day.get("total_calories") or 0)
             base_protein = float(day.get("total_protein") or 0)
             needs_more = targets["calories"] > base_calories or targets["protein"] > base_protein
             if goal == "muscle_gain" and needs_more:
-                portion_note = "Add curd, dal, paneer/tofu, or extra roti to match this person's muscle-gain target."
+                portion_note = "Add paneer/tofu, sprouts, chana, or extra roti to match this person's muscle-gain target."
             elif goal == "weight_loss":
                 portion_note = "Use smaller rice/roti portions and more salad/vegetables for this person's weight-loss target."
             elif needs_more:
-                portion_note = "Adjust portions with dal, curd, rice, or roti to meet this person's maintenance target."
+                portion_note = "Adjust portions with chana, paneer/tofu, rice, or roti to meet this person's maintenance target."
             else:
                 portion_note = "Base portions fit this person's target."
+            portion_note = replace_feedback_exclusions(portion_note, exclusions)
             adjusted_days.append({
                 "day": day.get("day") or day.get("day_name") or "",
                 "calories": targets["calories"],
                 "protein": targets["protein"],
-                "status": "planned",
+                "status": plan_status,
                 "portion_note": portion_note,
                 "meals": [
-                    {"type": "Breakfast", "name": day.get("breakfast", ""), "calories": day.get("breakfast_calories", 0), "protein": day.get("breakfast_protein", 0)},
-                    {"type": "Lunch", "name": day.get("lunch", ""), "calories": day.get("lunch_calories", 0), "protein": day.get("lunch_protein", 0)},
-                    {"type": "Dinner", "name": day.get("dinner", ""), "calories": day.get("dinner_calories", 0), "protein": day.get("dinner_protein", 0)},
+                    person_meal("Breakfast", day, goal, targets, dietary_type, exclusions),
+                    person_meal("Lunch", day, goal, targets, dietary_type, exclusions),
+                    person_meal("Dinner", day, goal, targets, dietary_type, exclusions),
                 ],
             })
         people_plans.append({
@@ -445,6 +623,7 @@ def generate_structured_plan(
         Per-person family preferences and restrictions:
         {build_people_preference_context(user or {})}
         User feedback to apply: {feedback_text or 'None'}
+        {feedback_exclusion_instruction(feedback_text)}
         Meals to avoid repeating from recent weeks: {', '.join(avoid_meals or []) or 'None'}
 
         Generate a complete 7-day Indian meal plan in this EXACT JSON format.
@@ -578,15 +757,15 @@ def generate_structured_plan(
 
         Make all 7 days use the actual recipes found in the research above.
         Adjust the example JSON to use real recipes from the research.
-        If user feedback is provided, adjust meal choices accordingly.
+        If user feedback is provided, adjust meal choices accordingly. If the feedback says no, avoid, remove, without, or exclude an ingredient, that is a hard exclusion for the entire regenerated plan.
         Make the final dish names visibly reflect the user's preferences where possible.
         For family members with different preferences, keep the base meal compatible and use portion_note or simple swaps/add-ons in people_plans.
         Do not generate low-calorie weight-loss meals unless the goal is weight_loss.
-        For maintenance and muscle_gain, add enough dal, curd, paneer/tofu/eggs if allowed, rice/roti, and legumes to hit targets.
+        For maintenance and muscle_gain, add enough allowed protein and portions to hit targets. Use paneer/tofu/eggs if allowed, chana, rajma, soya chunks, rice/roti, and legumes unless the user's feedback excludes them.
         Plan the full week's grocery list within the ₹{budget_weekly} weekly budget.
         The shopping_list must be realistic for Indian grocery prices and its estimated total must be less than or equal to ₹{budget_weekly}.
-        If the budget is tight, reduce premium proteins and choose dal, chana, rajma, soya chunks, rice, atta, curd, and seasonal vegetables.
-        Prefer budget-friendly Indian staples like dal, chana, rajma, rice, atta, seasonal vegetables, curd, eggs only if allowed, soya chunks, and paneer/tofu in controlled quantities.
+        If the budget is tight, reduce premium proteins and choose allowed budget staples like chana, rajma, soya chunks, rice, atta, seasonal vegetables, eggs only if allowed, and paneer/tofu in controlled quantities.
+        Prefer budget-friendly Indian staples that are allowed by dietary type, allergies, and user feedback.
         Avoid expensive ingredients like avocado, quinoa, berries, imported cheese, almond milk, almond flour, and broccoli unless the budget clearly allows them.
         Do not repeat the same breakfast, lunch, or dinner across consecutive days.
         Monday, Tuesday, and Wednesday must all have different meal names.
@@ -602,7 +781,10 @@ def generate_structured_plan(
             response_format={"type": "json_object"}
         )
 
-        result = sanitize_plan_for_diet(json.loads(response.choices[0].message.content), user.get("dietary_type") if user else None)
+        result = apply_feedback_exclusions(
+            sanitize_plan_for_diet(json.loads(response.choices[0].message.content), user.get("dietary_type") if user else None),
+            feedback_text,
+        )
         result["user_id"] = user_id
         return attach_people_plans(apply_budget_summary(result, budget_weekly, goal), user or {})
 
@@ -618,7 +800,7 @@ def generate_structured_plan(
             ("Saturday", "Besan dhokla with green chutney", 310, 14, "Kadhi rice with carrot salad", 500, 19, "Bhindi masala with dal and chapati", 460, 20),
             ("Sunday", "Sprouts chilla with tomato chutney", 330, 20, "Vegetable biryani with raita", 520, 20, "Lauki kofta with phulka and dal soup", 450, 22),
         ]
-        return attach_people_plans(apply_budget_summary(sanitize_plan_for_diet({
+        fallback_plan = apply_feedback_exclusions(sanitize_plan_for_diet({
             "user_id": user_id,
             "week_plan": [
                 {
@@ -654,7 +836,8 @@ def generate_structured_plan(
                 "Turmeric powder", "Cumin seeds", "Coriander powder", "Garam masala", "Mustard oil"
             ],
             "goal_summary": "Basic weight loss meal plan with Indian recipes."
-        }, user.get("dietary_type") if user else None), parse_budget((user or {}).get("budget_weekly") if user else 0), goal), user or {})
+        }, user.get("dietary_type") if user else None), feedback_text)
+        return attach_people_plans(apply_budget_summary(fallback_plan, parse_budget((user or {}).get("budget_weekly") if user else 0), goal), user or {})
 
 
 def run_onboarding(
@@ -753,9 +936,10 @@ def generate_meal_plan(user_id: int, feedback_text: str = "", week_start: Option
         Per-person family preferences and restrictions:
         {build_people_preference_context(user)}
         Feedback: {feedback_text or 'None'}
+        {feedback_exclusion_instruction(feedback_text)}
         Recent meals to avoid repeating: {', '.join(avoid_meals) or 'None'}
 
-        Use common Indian home-cooking meals and budget staples. Preferences must affect dish choice, spice level, cuisine style, ingredients, and substitutions. Do not call tools.
+        Use common Indian home-cooking meals and budget staples. Preferences must affect dish choice, spice level, cuisine style, ingredients, and substitutions. If feedback says no/avoid/without/remove an ingredient, exclude it from all meals and groceries. Do not call tools.
         """
 
         # convert to structured JSON
