@@ -31,6 +31,83 @@ STRICT_VEGETARIAN_BLOCKLIST = (
     "Do not include chicken, meat, fish, seafood, eggs, bone broth, gelatin, or any non-vegetarian ingredient."
 )
 
+DIET_BLOCKED_TERMS = {
+    "vegetarian": [
+        "chicken", "fish", "mutton", "lamb", "beef", "pork", "seafood", "prawn", "shrimp",
+        "egg", "eggs", "omelette", "anda", "bakra", "keema", "bone broth", "gelatin",
+    ],
+    "vegan": [
+        "chicken", "fish", "mutton", "lamb", "beef", "pork", "seafood", "prawn", "shrimp",
+        "egg", "eggs", "omelette", "anda", "bakra", "keema", "bone broth", "gelatin",
+        "milk", "curd", "yogurt", "paneer", "ghee", "cheese", "honey",
+    ],
+    "eggetarian": [
+        "chicken", "fish", "mutton", "lamb", "beef", "pork", "seafood", "prawn", "shrimp",
+        "bakra", "keema", "bone broth", "gelatin",
+    ],
+    "pescatarian": [
+        "chicken", "mutton", "lamb", "beef", "pork", "bakra", "keema",
+    ],
+}
+
+SAFE_MEAL_REPLACEMENTS = {
+    "vegetarian": {
+        "breakfast": "Moong dal cheela with mint chutney",
+        "lunch": "Rajma masala with rice and salad",
+        "dinner": "Paneer tikka with roti and cucumber salad",
+    },
+    "vegan": {
+        "breakfast": "Vegetable poha with peanuts",
+        "lunch": "Chana masala with rice and salad",
+        "dinner": "Tofu vegetable curry with roti",
+    },
+    "eggetarian": {
+        "breakfast": "Vegetable omelette with toast",
+        "lunch": "Rajma masala with rice and salad",
+        "dinner": "Paneer tikka with roti and cucumber salad",
+    },
+    "pescatarian": {
+        "breakfast": "Vegetable oats upma",
+        "lunch": "Fish curry with rice and salad",
+        "dinner": "Dal tadka with roti and vegetables",
+    },
+}
+
+SAFE_SHOPPING_REPLACEMENTS = {
+    "vegetarian": ["Paneer 500g", "Soya chunks 500g", "Dal assorted 1kg", "Curd 500g"],
+    "vegan": ["Tofu 500g", "Soya chunks 500g", "Dal assorted 1kg", "Chana 500g"],
+    "eggetarian": ["Eggs 1 dozen", "Paneer 500g", "Soya chunks 500g", "Dal assorted 1kg"],
+    "pescatarian": ["Fish 800g", "Dal assorted 1kg", "Curd 500g"],
+}
+
+
+def violates_diet(text: Any, dietary_type: Optional[str]) -> bool:
+    normalized = normalize_dietary_type(dietary_type) or "normal"
+    blocked = DIET_BLOCKED_TERMS.get(normalized, [])
+    value = f" {str(text or '').lower()} "
+    return any(term in value for term in blocked)
+
+
+def sanitize_plan_for_diet(plan: Dict[str, Any], dietary_type: Optional[str]) -> Dict[str, Any]:
+    normalized = normalize_dietary_type(dietary_type) or "normal"
+    replacements = SAFE_MEAL_REPLACEMENTS.get(normalized)
+    if not replacements:
+        return plan
+
+    for day in plan.get("week_plan") or []:
+        for meal_type in ("breakfast", "lunch", "dinner"):
+            if violates_diet(day.get(meal_type), normalized):
+                day[meal_type] = replacements[meal_type]
+
+    shopping_list = plan.get("shopping_list") or []
+    if isinstance(shopping_list, list):
+        cleaned = [item for item in shopping_list if not violates_diet(item, normalized)]
+        for item in SAFE_SHOPPING_REPLACEMENTS.get(normalized, []):
+            if item not in cleaned:
+                cleaned.append(item)
+        plan["shopping_list"] = cleaned
+    return plan
+
 
 def build_dietary_instruction(dietary_type: Optional[str]) -> str:
     normalized = normalize_dietary_type(dietary_type) or "normal"
@@ -525,7 +602,7 @@ def generate_structured_plan(
             response_format={"type": "json_object"}
         )
 
-        result = json.loads(response.choices[0].message.content)
+        result = sanitize_plan_for_diet(json.loads(response.choices[0].message.content), user.get("dietary_type") if user else None)
         result["user_id"] = user_id
         return attach_people_plans(apply_budget_summary(result, budget_weekly, goal), user or {})
 
@@ -541,7 +618,7 @@ def generate_structured_plan(
             ("Saturday", "Besan dhokla with green chutney", 310, 14, "Kadhi rice with carrot salad", 500, 19, "Bhindi masala with dal and chapati", 460, 20),
             ("Sunday", "Sprouts chilla with tomato chutney", 330, 20, "Vegetable biryani with raita", 520, 20, "Lauki kofta with phulka and dal soup", 450, 22),
         ]
-        return attach_people_plans(apply_budget_summary({
+        return attach_people_plans(apply_budget_summary(sanitize_plan_for_diet({
             "user_id": user_id,
             "week_plan": [
                 {
@@ -577,7 +654,7 @@ def generate_structured_plan(
                 "Turmeric powder", "Cumin seeds", "Coriander powder", "Garam masala", "Mustard oil"
             ],
             "goal_summary": "Basic weight loss meal plan with Indian recipes."
-        }, parse_budget((user or {}).get("budget_weekly") if user else 0), goal), user or {})
+        }, user.get("dietary_type") if user else None), parse_budget((user or {}).get("budget_weekly") if user else 0), goal), user or {})
 
 
 def run_onboarding(
