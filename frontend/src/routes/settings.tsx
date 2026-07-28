@@ -13,6 +13,8 @@ function Settings() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<any>({});
   const [testingTelegram, setTestingTelegram] = useState(false);
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+  const [whatsappInput, setWhatsappInput] = useState("");
   const userId = storage.getUserId();
   const authUser = storage.getAuthUser<any>();
   const telegram = profile.telegram || profile.telegram_id || storage.getTelegram() || "";
@@ -31,9 +33,14 @@ function Settings() {
         storage.setRole(result.profile.role || storage.getRole());
         storage.setTelegram(freshProfile.telegram || "");
         storage.setWhatsapp(freshProfile.whatsapp || "");
+        setWhatsappInput(freshProfile.whatsapp || "");
       }).catch(() => {});
     }
   }, [userId]);
+
+  useEffect(() => {
+    setWhatsappInput(whatsapp || "");
+  }, [whatsapp]);
 
   async function testTelegram() {
     if (!userId) {
@@ -57,6 +64,36 @@ function Settings() {
       toast.error("Telegram is not working", { description: error instanceof Error ? error.message : "Please check bot token and chat ID." });
     } finally {
       setTestingTelegram(false);
+    }
+  }
+
+  async function saveWhatsapp() {
+    if (!userId) {
+      toast.error("Create profile first");
+      return;
+    }
+    const cleanedWhatsapp = whatsappInput.replace(/\D/g, "");
+    if (whatsappInput.trim() && cleanedWhatsapp.length < 10) {
+      toast.error("Enter a valid WhatsApp number", { description: "Use country code, no +. Example: 919876543210" });
+      return;
+    }
+    setSavingWhatsapp(true);
+    try {
+      const result = await api.updateProfile(userId, {
+        ...profile,
+        whatsapp: cleanedWhatsapp,
+        whatsapp_number: cleanedWhatsapp,
+      });
+      const freshProfile = normalizeProfile(result.profile);
+      setProfile(freshProfile);
+      setWhatsappInput(freshProfile.whatsapp || "");
+      storage.setProfile(freshProfile);
+      storage.setWhatsapp(freshProfile.whatsapp || "");
+      toast.success("WhatsApp number saved");
+    } catch (error) {
+      toast.error("WhatsApp number was not saved", { description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
+      setSavingWhatsapp(false);
     }
   }
 
@@ -140,9 +177,25 @@ function Settings() {
           <div className="mt-1 text-sm font-medium">{whatsapp || "Not added"}</div>
         </div>
 
-        <Link to="/profile" className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition">
-          <UserCog className="size-4" /> Edit profile
-        </Link>
+        <label className="block">
+          <div className="text-xs font-medium text-text-secondary mb-1.5">WhatsApp number</div>
+          <input
+            value={whatsappInput}
+            onChange={(event) => setWhatsappInput(event.target.value)}
+            placeholder="919876543210"
+            className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+          />
+          <div className="mt-1 text-[11px] text-text-light">Use country code, no + or spaces.</div>
+        </label>
+
+        <div className="flex flex-wrap gap-3">
+          <button onClick={saveWhatsapp} disabled={savingWhatsapp} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 transition disabled:opacity-50">
+            <Send className="size-4" /> {savingWhatsapp ? "Saving..." : "Save WhatsApp"}
+          </button>
+          <Link to="/profile" className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary transition">
+            <UserCog className="size-4" /> Edit full profile
+          </Link>
+        </div>
       </section>
 
       <section className="rounded-xl border border-border bg-surface shadow-soft p-5">
