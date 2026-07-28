@@ -12,6 +12,8 @@ rm -rf "$DEPLOY_DIR"
 mkdir -p "$DEPLOY_DIR/.vercel"
 cp -R "$ROOT_DIR/.vercel/output" "$DEPLOY_DIR/.vercel/output"
 cp "$ROOT_DIR/.vercel/project.json" "$DEPLOY_DIR/.vercel/project.json"
+mkdir -p "$DEPLOY_DIR/.vercel/output/functions/api"
+cp -R "$ROOT_DIR/.vercel/output/functions/api/index.py.func" "$DEPLOY_DIR/.vercel/output/functions/api/index.py.func"
 
 node - "$ROOT_DIR" "$DEPLOY_DIR" <<'NODE'
 const fs = require("fs");

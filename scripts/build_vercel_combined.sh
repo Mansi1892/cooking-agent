@@ -8,8 +8,6 @@ cd "$ROOT_DIR"
 
 rm -rf "$TMP_API_FUNC"
 mkdir -p "$TMP_API_FUNC"
-rm -f "$ROOT_DIR/pyproject.toml" "$ROOT_DIR/uv.lock"
-
 npx vercel build --prod --local-config "$ROOT_DIR/scripts/vercel.api.json"
 cp -R "$ROOT_DIR/.vercel/output/functions/api/index.py.func" "$TMP_API_FUNC/index.py.func"
 
@@ -39,7 +37,9 @@ const apiConfig = JSON.parse(fs.readFileSync(apiConfigPath, "utf8"));
 const backendFiles = new Set([
   ".python-version",
   ".vercelignore",
+  "pyproject.toml",
   "requirements.txt",
+  "uv.lock",
 ]);
 apiConfig.filePathMap = Object.fromEntries(
   Object.entries(apiConfig.filePathMap || {}).filter(([source]) => {
@@ -54,9 +54,7 @@ apiConfig.filePathMap = Object.fromEntries(
       normalized.startsWith(".pytest_cache/") ||
       normalized.startsWith(".vercel/") ||
       normalized.startsWith("frontend/") ||
-      normalized.startsWith("node_modules/") ||
-      normalized === "pyproject.toml" ||
-      normalized === "uv.lock"
+      normalized.startsWith("node_modules/")
     ) {
       return false;
     }
@@ -65,10 +63,12 @@ apiConfig.filePathMap = Object.fromEntries(
       (/^[^/]+\.py$/.test(normalized) && normalized !== "test_flow.py") ||
       normalized.startsWith("api/") ||
       normalized.startsWith("data/") ||
-      normalized.startsWith("_vendor/")
+      normalized.startsWith("_vendor/") ||
+      normalized.startsWith("_uv/")
     );
   })
 );
+apiConfig.filePathMap["_uv/uv"] = "_uv/uv";
 fs.writeFileSync(apiConfigPath, JSON.stringify(apiConfig, null, 2) + "\n");
 NODE
 
