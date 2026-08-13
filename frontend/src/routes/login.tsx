@@ -57,7 +57,6 @@ function Login() {
         toast.error("Supabase Auth is not configured");
         return;
       }
-      await api.signupCheck({ email: cleanEmail, password: password.trim(), name: cleanName });
       const { error } = await supabase.auth.signUp({
         email: cleanEmail,
         password: password.trim(),
@@ -70,6 +69,16 @@ function Login() {
     } catch (error) {
       toast.error("Sign up failed", { description: error instanceof Error ? error.message : "Please try again." });
       return;
+    }
+
+    try {
+      const result = await api.getProfileByEmail(cleanEmail);
+      saveProfileSession(result.profile, cleanEmail, cleanName);
+      toast.success("Account linked", { description: "Your existing meal profile is connected to Supabase login." });
+      navigate({ to: "/" });
+      return;
+    } catch {
+      // New auth account without a meal profile yet should continue onboarding.
     }
 
     storage.clearAll();
