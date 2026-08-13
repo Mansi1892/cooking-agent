@@ -6,10 +6,11 @@ import { storage } from "@/lib/storage";
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const hideChrome = pathname.startsWith("/onboarding") || pathname.startsWith("/login");
+  const isAuthRecovery = pathname.startsWith("/forgot-password") || pathname.startsWith("/reset-password");
+  const hideChrome = pathname.startsWith("/onboarding") || pathname.startsWith("/login") || isAuthRecovery;
   const isLogin = pathname.startsWith("/login");
   const isOnboarding = pathname.startsWith("/onboarding");
-  const isPublic = isLogin;
+  const isPublic = isLogin || isAuthRecovery;
 
   useEffect(() => {
     const sessionWasReset = storage.ensureFreshVersion();
@@ -24,7 +25,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!isLogin && !isOnboarding && storage.isLoggedIn() && !storage.getUserId()) {
       navigate({ to: "/onboarding" });
     }
-  }, [isLogin, isOnboarding, isPublic, navigate, pathname]);
+  }, [isLogin, isOnboarding, isPublic, navigate, pathname, isAuthRecovery]);
 
   if (hideChrome) return <>{children}</>;
 

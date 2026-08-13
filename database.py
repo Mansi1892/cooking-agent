@@ -18,7 +18,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None, gender="", whatsapp_number=""):
+def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekly, dietary_type=None, dietary_preferences=None, allergies=None, preferences=None, email=None, gender="", whatsapp_number="", auth_fields=None):
     payload = {
         "name": name,
         "email": (email or "").strip().lower(),
@@ -42,6 +42,12 @@ def create_user(name, age, weight_kg, height_cm, goal, telegram_id, budget_weekl
         payload["allergies"] = allergies
     if preferences:
         payload["preferences"] = preferences
+    if auth_fields:
+        payload.update({
+            key: value
+            for key, value in auth_fields.items()
+            if key in {"password_hash", "password_reset_token", "password_reset_expires_at"}
+        })
 
     try:
         result = supabase.table("users").insert(payload).select("*").execute()
@@ -155,6 +161,9 @@ def update_user(user_id, updates):
         "preferences",
         "credits",
         "role",
+        "password_hash",
+        "password_reset_token",
+        "password_reset_expires_at",
     }
     payload = {key: value for key, value in (updates or {}).items() if key in allowed}
     if not payload:

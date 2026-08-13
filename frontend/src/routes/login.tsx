@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, LockKeyhole, Mail, Sparkles, UserRound } from "lucide-react";
 import { toast } from "sonner";
@@ -29,25 +29,23 @@ function Login() {
       return;
     }
 
-    let existingProfile: any = null;
-    try {
-      const result = await api.getProfileByEmail(cleanEmail);
-      existingProfile = result.profile;
-    } catch {
-      if (mode === "login") {
-        storage.clearAll();
-        toast.error("Account not found", { description: "Please sign up first, or check the email address." });
+    if (mode === "login") {
+      try {
+        const result = await api.login({ email: cleanEmail, password: password.trim() });
+        saveProfileSession(result.profile, cleanEmail, cleanName);
+      } catch (error) {
+        toast.error("Login failed", { description: error instanceof Error ? error.message : "Please check your email and password." });
         return;
       }
-    }
-
-    if (mode === "signup" && existingProfile) {
-      toast.error("Account already exists", { description: "Please login with this email instead of signing up again." });
+      toast.success("Welcome back");
+      navigate({ to: "/" });
       return;
     }
 
-    if (mode === "login" && !existingProfile) {
-      toast.error("Account not found", { description: "Please sign up first, or check the email address." });
+    try {
+      await api.signupCheck({ email: cleanEmail, password: password.trim(), name: cleanName });
+    } catch (error) {
+      toast.error("Sign up failed", { description: error instanceof Error ? error.message : "Please try again." });
       return;
     }
 
@@ -55,38 +53,11 @@ function Login() {
     storage.setAuthUser({
       name: cleanName,
       email: cleanEmail,
+      password: password.trim(),
       logged_in_at: new Date().toISOString(),
     });
-
-    if (existingProfile) {
-      storage.setUserId(String(existingProfile.id));
-      storage.setUserName(existingProfile.name || cleanName);
-      storage.setGoal(existingProfile.goal || "maintenance");
-      storage.setCredits(Number(existingProfile.credits ?? 3));
-      storage.setRole(existingProfile.role || "user");
-      storage.setTelegram(existingProfile.telegram_id || "");
-      storage.setWhatsapp(existingProfile.whatsapp_number || "");
-      storage.setProfile({
-        name: existingProfile.name || cleanName,
-        email: cleanEmail,
-        age: existingProfile.age,
-        weight: existingProfile.weight_kg,
-        height: existingProfile.height_cm,
-        weekly_budget: existingProfile.budget_weekly,
-        telegram: existingProfile.telegram_id,
-        whatsapp: existingProfile.whatsapp_number,
-        goal: existingProfile.goal,
-        dietary_preference: existingProfile.dietary_type,
-        allergies: existingProfile.allergies || [],
-        preferences: existingProfile.preferences || [],
-      });
-      toast.success("Welcome back");
-      navigate({ to: "/" });
-      return;
-    }
-
     storage.setUserName(cleanName);
-    toast.success(mode === "signup" ? "Account created" : "Welcome back");
+    toast.success("Account started", { description: "Finish your profile to activate meal planning." });
     navigate({ to: "/onboarding" });
   }
 
@@ -161,13 +132,51 @@ function Login() {
             {mode === "signup" ? "Create account" : "Login"} <ArrowRight className="size-4" />
           </button>
 
+          {mode === "login" && (
+            <div className="mt-4 text-right">
+              <Link to="/forgot-password" className="text-sm font-medium text-primary hover:opacity-80 transition">
+                Forgot password?
+              </Link>
+            </div>
+          )}
+
           <p className="mt-4 text-xs text-text-light leading-relaxed">
-            This is a local demo login. Real backend authentication can be added next without changing the onboarding flow.
+            Use your email and password. New users finish profile setup after signup.
           </p>
         </form>
       </main>
     </div>
   );
+}
+
+function saveProfileSession(profile: any, email: string, fallbackName: string) {
+  storage.clearAll();
+  storage.setAuthUser({
+    name: profile.name || fallbackName,
+    email,
+    logged_in_at: new Date().toISOString(),
+  });
+  storage.setUserId(String(profile.id));
+  storage.setUserName(profile.name || fallbackName);
+  storage.setGoal(profile.goal || "maintenance");
+  storage.setCredits(Number(profile.credits ?? 3));
+  storage.setRole(profile.role || "user");
+  storage.setTelegram(profile.telegram_id || "");
+  storage.setWhatsapp(profile.whatsapp_number || "");
+  storage.setProfile({
+    name: profile.name || fallbackName,
+    email,
+    age: profile.age,
+    weight: profile.weight_kg,
+    height: profile.height_cm,
+    weekly_budget: profile.budget_weekly,
+    telegram: profile.telegram_id,
+    whatsapp: profile.whatsapp_number,
+    goal: profile.goal,
+    dietary_preference: profile.dietary_type,
+    allergies: profile.allergies || [],
+    preferences: profile.preferences || [],
+  });
 }
 
 function Field({ icon: Icon, children }: { icon: any; children: React.ReactNode }) {

@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import secrets
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -13,6 +14,7 @@ from typing import List, Optional
 import uvicorn
 
 from database import (
+    supabase,
     create_user,
     get_user,
     get_user_by_email,
@@ -58,6 +60,7 @@ app = FastAPI(title="Smart Meal AI API")
 GENERATING_USERS = set()
 TELEGRAM_SENT_PLAN_IDS = set()
 TELEGRAM_PENDING_FEEDBACK = {}
+PASSWORD_RESET_TTL_MINUTES = 30
 DAYS_BY_FEEDBACK_TOKEN = {
     "mon": "Monday", "monday": "Monday",
     "tue": "Tuesday", "tues": "Tuesday", "tuesday": "Tuesday",
@@ -75,6 +78,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def hash_password(password: str, salt: str | None = None) -> str:
+    clean_password = str(password or "")
+    if len(clean_password) < 4:
+        raise HTTPException(status_code=400, detail="Use at least 4 characters.")
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", clean_password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
+    return f"pbkdf2_sha256${salt}${digest}"
+
+
+def verify_password(password: str, stored_hash: str | None) -> bool:
+    if not stored_hash or not str(stored_hash).startswith("pbkdf2_sha256$"):
+        return False
+    try:
+        _, salt, expected = str(stored_hash).split("$", 2)
+        actual = hash_password(password, salt).split("$", 2)[2]
+        return hmac.compare_digest(actual, expected)
+    except Exception:
+        return False
+
+
+def public_profile(user: dict) -> dict:
+    clean = dict(user or {})
+    clean.pop("password_hash", None)
+    clean.pop("password_reset_token", None)
+    clean.pop("password_reset_expires_at", None)
+    clean["credits"] = get_user_credits(clean)
+    clean["role"] = clean.get("role") or "user"
+    clean["family"] = get_family_members(clean.get("id"))
+    return clean
+
+
+def build_reset_url(token: str) -> str:
+    frontend_url = os.getenv("FRONTEND_PUBLIC_URL") or os.getenv("FRONTEND_DEV_URL") or ""
+    base = frontend_url.rstrip("/") or "https://smart-meal-ai-app.vercel.app"
+    return f"{base}/reset-password?token={urllib.parse.quote(token)}"
 
 
 # --- Pydantic Models ---
@@ -99,6 +139,7 @@ class UserProfile(BaseModel):
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
     allergies: Optional[List[str]] = Field(default_factory=list)
     preferences: Optional[List[str]] = Field(default_factory=list)
+    password: Optional[str] = None
 
 
 class FamilyMember(BaseModel):
@@ -143,10 +184,26 @@ class OnboardingRequest(BaseModel):
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
     allergies: Optional[List[str]] = Field(default_factory=list)
     preferences: Optional[List[str]] = Field(default_factory=list)
+    password: Optional[str] = None
 
 
 class ProfileUpdateRequest(UserProfile):
     family: Optional[List[FamilyMember]] = Field(default_factory=list)
+
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
 
 
 class FeedbackRequest(BaseModel):
@@ -861,6 +918,136 @@ async def api_generate_recipe(payload: RecipeRequest):
     return await generate_recipe(payload)
 
 
+# --- Auth ---
+
+@app.post("/auth/signup-check")
+async def signup_check(payload: AuthRequest):
+    email = str(payload.email or "").strip().lower()
+    password = str(payload.password or "")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required.")
+    if len(password.strip()) < 4:
+        raise HTTPException(status_code=400, detail="Use at least 4 characters.")
+    if get_user_by_email(email):
+        raise HTTPException(status_code=409, detail="Account already exists. Please login instead.")
+    return {"ok": True}
+
+
+@app.post("/api/auth/signup-check")
+async def api_signup_check(payload: AuthRequest):
+    return await signup_check(payload)
+
+
+@app.post("/auth/login")
+async def login(payload: AuthRequest):
+    email = str(payload.email or "").strip().lower()
+    password = str(payload.password or "")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required.")
+    if len(password.strip()) < 4:
+        raise HTTPException(status_code=400, detail="Use at least 4 characters.")
+
+    user = get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found. Please sign up first.")
+
+    stored_hash = user.get("password_hash")
+    if stored_hash:
+        if not verify_password(password, stored_hash):
+            raise HTTPException(status_code=401, detail="Incorrect password.")
+    else:
+        updated = update_user(user.get("id"), {"password_hash": hash_password(password)})
+        if not updated:
+            raise HTTPException(status_code=500, detail="Password columns are missing. Run supabase_auth_setup.sql in Supabase.")
+        user = updated
+
+    return {"profile": public_profile(user)}
+
+
+@app.post("/api/auth/login")
+async def api_login(payload: AuthRequest):
+    return await login(payload)
+
+
+@app.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest):
+    email = str(payload.email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required.")
+    user = get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found. Please sign up first.")
+
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES)).isoformat()
+    updated = update_user(user.get("id"), {
+        "password_reset_token": token,
+        "password_reset_expires_at": expires_at,
+    })
+    if not updated:
+        raise HTTPException(status_code=500, detail="Password reset columns are missing. Run supabase_auth_setup.sql in Supabase.")
+
+    reset_url = build_reset_url(token)
+    return {
+        "sent": True,
+        "reset_url": reset_url,
+        "message": "Password reset link generated.",
+    }
+
+
+@app.post("/api/auth/forgot-password")
+async def api_forgot_password(payload: ForgotPasswordRequest):
+    return await forgot_password(payload)
+
+
+@app.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordRequest):
+    token = str(payload.token or "").strip()
+    password = str(payload.password or "")
+    if not token:
+        raise HTTPException(status_code=400, detail="Reset token is missing.")
+    if len(password.strip()) < 4:
+        raise HTTPException(status_code=400, detail="Use at least 4 characters.")
+
+    try:
+        result = (
+            supabase.table("users")
+            .select("*")
+            .eq("password_reset_token", token)
+            .limit(1)
+            .execute()
+        )
+        users = result.data or []
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Password reset lookup failed: {exc}")
+
+    if not users:
+        raise HTTPException(status_code=400, detail="Reset link is invalid or already used.")
+
+    user = users[0]
+    expires_raw = user.get("password_reset_expires_at")
+    try:
+        expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        expires_at = datetime.utcnow() - timedelta(seconds=1)
+    if expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+
+    updated = update_user(user.get("id"), {
+        "password_hash": hash_password(password),
+        "password_reset_token": None,
+        "password_reset_expires_at": None,
+    })
+    if not updated:
+        raise HTTPException(status_code=500, detail="Password reset failed. Run supabase_auth_setup.sql in Supabase.")
+    return {"ok": True}
+
+
+@app.post("/api/auth/reset-password")
+async def api_reset_password(payload: ResetPasswordRequest):
+    return await reset_password(payload)
+
+
 # --- Onboarding ---
 
 @app.post("/onboard")
@@ -918,6 +1105,7 @@ async def onboard(payload: OnboardingRequest):
     ) or "normal"
     allergies = user_data.get("allergies") or []
     preferences = user_data.get("preferences") or []
+    password = str(user_data.get("password") or "").strip()
 
     updates = {
         "name": user_name,
@@ -954,6 +1142,7 @@ async def onboard(payload: OnboardingRequest):
         dietary_preferences=dietary_preferences,
         allergies=allergies,
         preferences=preferences,
+        auth_fields={"password_hash": hash_password(password)} if password else None,
     )
 
     if not user or "id" not in user:

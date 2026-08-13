@@ -82,6 +82,7 @@ export type FamilyMember = {
 export type OnboardPayload = {
   name: string;
   email?: string;
+  password?: string;
   age: number;
   gender?: string;
   weight: number;
@@ -209,6 +210,10 @@ export type Recipe = {
 
 export const api = {
   health: () => request<{ status: string }>("/health"),
+  login: (payload: { email: string; password: string }) => request<{ profile: UserProfile }>("/auth/login", { method: "POST", body: JSON.stringify(payload) }),
+  signupCheck: (payload: { email: string; password: string; name?: string }) => request<{ ok: boolean }>("/auth/signup-check", { method: "POST", body: JSON.stringify(payload) }),
+  forgotPassword: (payload: { email: string }) => request<{ sent: boolean; reset_url?: string; message?: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify(payload) }),
+  resetPassword: (payload: { token: string; password: string }) => request<{ ok: boolean }>("/auth/reset-password", { method: "POST", body: JSON.stringify(payload) }),
   onboard: (data: OnboardPayload) => request<{ user_id: string; credits?: number; role?: string }>("/onboard", { method: "POST", body: JSON.stringify(data) }),
   getProfile: (userId: string) => request<{ profile: UserProfile }>(`/profile/${userId}`),
   getProfileByEmail: (email: string) => request<{ profile: UserProfile }>(`/profile/by-email/${encodeURIComponent(email)}`),
