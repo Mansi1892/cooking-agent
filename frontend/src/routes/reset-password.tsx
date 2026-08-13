@@ -1,8 +1,8 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, LockKeyhole, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { hasSupabaseAuthConfig, supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/reset-password")({
   component: ResetPassword,
@@ -13,12 +13,25 @@ function ResetPassword() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const token = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") || "" : "";
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    async function loadSession() {
+      if (!hasSupabaseAuthConfig()) {
+        toast.error("Supabase Auth is not configured");
+        setReady(false);
+        return;
+      }
+      const { data } = await supabase.auth.getSession();
+      setReady(Boolean(data.session));
+    }
+    loadSession();
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!token) {
-      toast.error("Reset token is missing");
+    if (!ready) {
+      toast.error("Reset session is missing", { description: "Please open the latest reset link from your email." });
       return;
     }
     if (password.trim().length < 4) {
@@ -31,7 +44,8 @@ function ResetPassword() {
     }
     setSubmitting(true);
     try {
-      await api.resetPassword({ token, password: password.trim() });
+      const { error } = await supabase.auth.updateUser({ password: password.trim() });
+      if (error) throw error;
       toast.success("Password updated", { description: "You can login with your new password now." });
       navigate({ to: "/login" });
     } catch (error) {
@@ -66,16 +80,16 @@ function ResetPassword() {
 
         <button
           type="submit"
-          disabled={submitting || !token}
+          disabled={submitting || !ready}
           className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-5 py-3 text-sm font-semibold hover:opacity-90 transition shadow-soft disabled:opacity-60"
         >
           {submitting ? "Updating..." : "Update password"}
           <ArrowRight className="size-4" />
         </button>
 
-        {!token && (
+        {!ready && (
           <p className="mt-4 text-sm text-destructive">
-            This reset link is missing a token. Please request a new one.
+            Open the latest reset link from your email to activate this page.
           </p>
         )}
 

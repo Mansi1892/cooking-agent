@@ -4,6 +4,7 @@ import { ArrowRight, LockKeyhole, Mail, Sparkles, UserRound } from "lucide-react
 import { toast } from "sonner";
 import { storage } from "@/lib/storage";
 import { api } from "@/lib/api";
+import { hasSupabaseAuthConfig, supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/login")({
   component: Login,
@@ -31,8 +32,17 @@ function Login() {
 
     if (mode === "login") {
       try {
-        const result = await api.login({ email: cleanEmail, password: password.trim() });
-        saveProfileSession(result.profile, cleanEmail, cleanName);
+        if (!hasSupabaseAuthConfig()) {
+          toast.error("Supabase Auth is not configured");
+          return;
+        }
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password.trim(),
+        });
+        if (error) throw error;
+        const result = await api.getProfileByEmail(cleanEmail);
+        saveProfileSession(result.profile, cleanEmail, data.user?.user_metadata?.full_name || cleanName);
       } catch (error) {
         toast.error("Login failed", { description: error instanceof Error ? error.message : "Please check your email and password." });
         return;
@@ -43,7 +53,20 @@ function Login() {
     }
 
     try {
+      if (!hasSupabaseAuthConfig()) {
+        toast.error("Supabase Auth is not configured");
+        return;
+      }
       await api.signupCheck({ email: cleanEmail, password: password.trim(), name: cleanName });
+      const { error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: password.trim(),
+        options: {
+          data: { full_name: cleanName },
+          emailRedirectTo: `${window.location.origin}/login`,
+        },
+      });
+      if (error) throw error;
     } catch (error) {
       toast.error("Sign up failed", { description: error instanceof Error ? error.message : "Please try again." });
       return;
@@ -53,7 +76,6 @@ function Login() {
     storage.setAuthUser({
       name: cleanName,
       email: cleanEmail,
-      password: password.trim(),
       logged_in_at: new Date().toISOString(),
     });
     storage.setUserName(cleanName);
@@ -141,7 +163,7 @@ function Login() {
           )}
 
           <p className="mt-4 text-xs text-text-light leading-relaxed">
-            Use your email and password. New users finish profile setup after signup.
+            Supabase Auth protects your email/password. New users finish profile setup after signup.
           </p>
         </form>
       </main>

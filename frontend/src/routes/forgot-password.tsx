@@ -2,7 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, Mail, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { hasSupabaseAuthConfig, supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/forgot-password")({
   component: ForgotPassword,
@@ -21,7 +21,14 @@ function ForgotPassword() {
     }
     setSubmitting(true);
     try {
-      await api.forgotPassword({ email: cleanEmail });
+      if (!hasSupabaseAuthConfig()) {
+        toast.error("Supabase Auth is not configured");
+        return;
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
       toast.success("Reset instructions sent", {
         description: "Check your email for the password reset link.",
       });

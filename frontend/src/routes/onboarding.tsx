@@ -97,12 +97,11 @@ function Onboarding() {
     }
     setSubmitting(true);
     try {
-      const authUser = storage.getAuthUser<{ email?: string; name?: string; password?: string }>();
+      const authUser = storage.getAuthUser<{ email?: string; name?: string }>();
       const resetUserId = storage.getResetOnboardingUserId();
       const payload = sanitizePayload({
         ...form,
         email: authUser?.email || form.email || "",
-        password: resetUserId ? undefined : authUser?.password,
       });
       if (!payload.email?.trim()) {
         toast.error("Please login again", { description: "Your email session was missing, so the profile cannot be saved." });
@@ -122,7 +121,6 @@ function Onboarding() {
         ...(currentAuthUser || {}),
         name: form.name,
         email: payload.email || "",
-        password: undefined,
         logged_in_at: new Date().toISOString(),
       });
       storage.setCredits(Number(updatedProfile?.credits ?? ("credits" in result ? result.credits : currentCredits)));
