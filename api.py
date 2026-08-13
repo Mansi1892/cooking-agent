@@ -987,12 +987,13 @@ async def forgot_password(payload: ForgotPasswordRequest):
     if not updated:
         raise HTTPException(status_code=500, detail="Password reset columns are missing. Run supabase_auth_setup.sql in Supabase.")
 
-    reset_url = build_reset_url(token)
-    return {
+    response = {
         "sent": True,
-        "reset_url": reset_url,
         "message": "Password reset link generated.",
     }
+    if os.getenv("SHOW_RESET_LINKS", "").strip().lower() == "true":
+        response["reset_url"] = build_reset_url(token)
+    return response
 
 
 @app.post("/api/auth/forgot-password")
