@@ -80,7 +80,7 @@ app.add_middleware(
 )
 
 
-def hash_password(password: str, salt: str | None = None) -> str:
+def hash_password(password: str, salt: Optional[str] = None) -> str:
     clean_password = str(password or "")
     if len(clean_password) < 4:
         raise HTTPException(status_code=400, detail="Use at least 4 characters.")
@@ -89,7 +89,7 @@ def hash_password(password: str, salt: str | None = None) -> str:
     return f"pbkdf2_sha256${salt}${digest}"
 
 
-def verify_password(password: str, stored_hash: str | None) -> bool:
+def verify_password(password: str, stored_hash: Optional[str]) -> bool:
     if not stored_hash or not str(stored_hash).startswith("pbkdf2_sha256$"):
         return False
     try:
