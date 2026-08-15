@@ -33,7 +33,8 @@ function ForgotPassword() {
         description: "Check your email for the password reset link.",
       });
     } catch (error) {
-      toast.error("Reset failed", { description: error instanceof Error ? error.message : "Please try again." });
+      const message = error instanceof Error ? error.message : "Please try again.";
+      toast.error("Reset failed", { description: message });
     } finally {
       setSubmitting(false);
     }

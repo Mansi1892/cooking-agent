@@ -40,7 +40,7 @@ function Login() {
           email: cleanEmail,
           password: password.trim(),
         });
-        if (error) throw error;
+        if (error) throw new Error(formatAuthError(error.message));
         const result = await api.getProfileByEmail(cleanEmail);
         saveProfileSession(result.profile, cleanEmail, data.user?.user_metadata?.full_name || cleanName);
       } catch (error) {
@@ -53,11 +53,12 @@ function Login() {
     }
 
     try {
+      await api.signupCheck({ email: cleanEmail, password: password.trim(), name: cleanName });
       if (!hasSupabaseAuthConfig()) {
         toast.error("Supabase Auth is not configured");
         return;
       }
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
         password: password.trim(),
         options: {
@@ -65,7 +66,10 @@ function Login() {
           emailRedirectTo: `${window.location.origin}/login`,
         },
       });
-      if (error) throw error;
+      if (error) throw new Error(formatAuthError(error.message));
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        throw new Error("Account already exists. Please login instead.");
+      }
     } catch (error) {
       toast.error("Sign up failed", { description: error instanceof Error ? error.message : "Please try again." });
       return;
@@ -228,4 +232,17 @@ function tab(active: boolean) {
     "rounded-md px-3 py-2 text-sm font-medium transition",
     active ? "bg-surface shadow-soft text-text-primary" : "text-text-secondary hover:text-text-primary",
   ].join(" ");
+}
+
+function formatAuthError(message: string) {
+  if (/email not confirmed/i.test(message)) {
+    return "Email is not confirmed. Please open the confirmation email from Supabase, or confirm this user in Supabase Auth for local testing.";
+  }
+  if (/invalid login credentials/i.test(message)) {
+    return "Incorrect email or password.";
+  }
+  if (/rate limit/i.test(message)) {
+    return "Supabase email rate limit is exceeded. Please wait or use the test SQL password reset.";
+  }
+  return message;
 }

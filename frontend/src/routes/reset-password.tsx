@@ -14,28 +14,68 @@ function ResetPassword() {
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [statusMessage, setStatusMessage] = useState("Checking reset link...");
 
   useEffect(() => {
     async function loadSession() {
       if (!hasSupabaseAuthConfig()) {
         toast.error("Supabase Auth is not configured");
         setReady(false);
+        setChecking(false);
         return;
       }
-      const params = new URLSearchParams(window.location.search);
+      const params = getRecoveryParams();
       const code = params.get("code");
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) {
-          toast.error("Reset link could not be opened", { description: error.message });
-          setReady(false);
-          return;
-        }
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      const tokenHash = params.get("token_hash") || params.get("token");
+      const hasRecoveryToken = Boolean(code || (accessToken && refreshToken) || tokenHash);
 
-      const { data } = await supabase.auth.getSession();
-      setReady(Boolean(data.session));
+      try {
+        if (code) {
+          setStatusMessage("Reset link found. Activating your session...");
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          clearRecoveryParams();
+        } else if (accessToken && refreshToken) {
+          setStatusMessage("Reset link found. Activating your session...");
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+          clearRecoveryParams();
+        } else if (tokenHash) {
+          setStatusMessage("Reset link found. Activating your session...");
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: "recovery",
+          });
+          if (error) throw error;
+          clearRecoveryParams();
+        } else {
+          setStatusMessage("No reset token was found in this URL. Request a fresh reset email and open that link.");
+        }
+
+        const { data } = await supabase.auth.getSession();
+        const hasSession = Boolean(data.session);
+        setReady(hasSession);
+        if (hasSession) {
+          setStatusMessage("Reset link active. You can update your password now.");
+        } else if (hasRecoveryToken) {
+          setStatusMessage("Reset link was found, but Supabase did not create a reset session. Please request a fresh link.");
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Please request a new reset link.";
+        setStatusMessage(`Reset link error: ${message}`);
+        toast.error("Reset link could not be opened", {
+          description: message,
+        });
+        setReady(false);
+      } finally {
+        setChecking(false);
+      }
     }
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY" || session) setReady(Boolean(session));
@@ -96,16 +136,22 @@ function ResetPassword() {
 
         <button
           type="submit"
-          disabled={submitting || !ready}
+          disabled={submitting || checking || !ready}
           className="mt-6 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-5 py-3 text-sm font-semibold hover:opacity-90 transition shadow-soft disabled:opacity-60"
         >
-          {submitting ? "Updating..." : "Update password"}
+          {checking ? "Checking link..." : submitting ? "Updating..." : "Update password"}
           <ArrowRight className="size-4" />
         </button>
 
-        {!ready && (
+        {!checking && !ready && (
           <p className="mt-4 text-sm text-destructive">
-            Open the latest reset link from your email to activate this page.
+            {statusMessage}
+          </p>
+        )}
+
+        {!checking && ready && (
+          <p className="mt-4 text-sm text-emerald-700">
+            {statusMessage}
           </p>
         )}
 
@@ -115,6 +161,20 @@ function ResetPassword() {
       </form>
     </div>
   );
+}
+
+function getRecoveryParams() {
+  const params = new URLSearchParams(window.location.search);
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  const hashParams = new URLSearchParams(hash);
+  hashParams.forEach((value, key) => {
+    if (!params.has(key)) params.set(key, value);
+  });
+  return params;
+}
+
+function clearRecoveryParams() {
+  window.history.replaceState({}, document.title, window.location.pathname);
 }
 
 function PasswordField({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
