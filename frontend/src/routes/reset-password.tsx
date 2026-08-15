@@ -22,10 +22,26 @@ function ResetPassword() {
         setReady(false);
         return;
       }
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          toast.error("Reset link could not be opened", { description: error.message });
+          setReady(false);
+          return;
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
       const { data } = await supabase.auth.getSession();
       setReady(Boolean(data.session));
     }
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY" || session) setReady(Boolean(session));
+    });
     loadSession();
+    return () => listener.subscription.unsubscribe();
   }, []);
 
   async function submit(e: React.FormEvent) {
